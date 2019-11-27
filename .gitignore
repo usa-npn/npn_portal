@@ -1,0 +1,6 @@
+/app/config/core.php
+/app/tmp
+/nbproject
+secret.json
+Gruntfile.js
+secret_template.json
