@@ -42,6 +42,7 @@ class MetadataController extends AppController{
         $this->addBooleanCondition("quality_check", "Quality_Check", $params, $conditions);
         $this->addBooleanCondition("climate", "Climate", $params, $conditions);
         $this->addBooleanCondition("required", "Required", $params, $conditions);
+        $this->addBooleanCondition("remote_sensing", "Remote_Sensing", $params, $conditions);
 
         
         if($this->checkProperty($params, "type") && in_array($params->type, $this->allowed_types)){
@@ -73,6 +74,7 @@ class MetadataController extends AppController{
             $obj->climate = $md["MetadataField"]["Climate"];
             $obj->required = $md["MetadataField"]["Required"];
             $obj->machine_name = $md["MetadataField"]["Machine_Name"];
+            $obj->remote_sensing = $md["MetadataField"]["Remote_Sensing"];
             
             $cv_string = "";
             $i=0;
