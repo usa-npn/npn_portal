@@ -768,35 +768,37 @@ public function getPhenophasesForTaxon($species_info=null){
     }
     
     
-    public function getSecondaryPhenophaseDetails($params=null){
-        
-        $sspis = array();
+    public function getSecondaryPhenophaseDetails($params, $out, $format){
+        App::import('Model','SpeciesSpecificPhenophaseInformation');
+        $this->SpeciesSpecificPhenophaseInformation =  new SpeciesSpecificPhenophaseInformation();
 
-        $results = $this->SpeciesSpecificPhenophaseInformation->find('all');
+        $emitter = $this->getEmitter($format, $out, "secondary_phenophase_details", "getSecondaryPhenophaseDetailsResponse");
+        $conditions = array();    
 
-        foreach($results as $result){
-            
-            $package = new AddDef();
-            $package->sspi_id = $result['SpeciesSpecificPhenophaseInformation']['Species_Specific_Phenophase_ID'];
-            $package->phenophase_id = $result['SpeciesSpecificPhenophaseInformation']['Phenophase_ID'];
-            $package->species_id = $result['SpeciesSpecificPhenophaseInformation']['Species_ID'];
-            $package->additional_definition = strip_tags($result['SpeciesSpecificPhenophaseInformation']['Additional_Definition']);
-            $package->abundance_category = $result['SpeciesSpecificPhenophaseInformation']['Abundance_Category'];
-            $package->effective_datetime = $result['SpeciesSpecificPhenophaseInformation']['Effective_Datetime'];
-            $package->deactivation_datetime = $result['SpeciesSpecificPhenophaseInformation']['Deactivation_Datetime'];
-            
-            
-            $sspis[] = $package;
+        $results = null;
+
+        $emitter->emitHeader();
+
+        $dbo = $this->SpeciesSpecificPhenophaseInformation->getDataSource();
+        $query = $dbo->buildStatement(array(
+            "fields" => array('*'),
+            "table" => $dbo->fullTableName($this->SpeciesSpecificPhenophaseInformation),
+            "alias" => 'SpeciesSpecificPhenophaseInformation',
+            ),
+        $this->SpeciesSpecificPhenophaseInformation
+        );
+
+        $results = mysql_unbuffered_query($query);
+
+        while($result = mysql_fetch_array($results, MYSQL_ASSOC)){
+            $result['node_name'] = "secondary_phenophase_details";
+            $result['Additional_Definition'] =  str_replace(">", "less than", str_replace("<", "greater than", str_replace("&", "and", strip_tags(preg_replace('/[^(\x20-\x7F)]*/','',  $result['Additional_Definition'])))));
+            $emitter->emitNode($result);
+            $out->flush();
         }
 
-        $this->set('sspis', $sspis);
-        
-        if($this->checkProperty($params, "pretty") && $params->pretty == 1){
-            $this->set('pretty', true);
-        }        
 
-
-        return $sspis;        
+        $emitter->emitFooter();
     }
     
     
