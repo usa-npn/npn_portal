@@ -777,7 +777,7 @@ class MagnitudeDataSearch extends GenericObservationSearch{
             $data['NumSites_with_Yes_Record'] = $data['NumIndividuals_with_Yes_Record'];
             $data['NumIndividuals_with_Yes_Record'] = -9999;
             
-            $data['Proportion_Sites_with_Yes_Record'] = $data['Proportion_Individuals_with_Yes_Record'];
+            $data['Proportion_Sites_with_Yes_Record'] = round($data['NumSites_with_Yes_Record'] / $data['Sites_Sample_Size'], 2);
             $data['Proportion_Individuals_with_Yes_Record'] = -9999;
         }else{
             $data['NumSites_with_Yes_Record'] = -9999;
