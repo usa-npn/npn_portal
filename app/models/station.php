@@ -109,6 +109,7 @@ class Station extends Appmodel{
                'Station.Station_ID',
                'Station.Short_Latitude',
                'Station.Short_Longitude',
+               'Daymet.tmax_winter',
                'Daymet.Year'
            )
         ));
@@ -117,7 +118,7 @@ class Station extends Appmodel{
         if(!$station){
             $daymet_data = null;
 
-        }else if(isset($station['Daymet']['Year'])){
+        }else if(isset($station['Daymet']['Year']) && isset($station['Daymet']['tmax_winter'] )){
 
             $latitude = $station['Station']['Short_Latitude'];
             $longitude = $station['Station']['Short_Longitude'];
@@ -131,8 +132,8 @@ class Station extends Appmodel{
 
             // don't want to create duplicate daymet rows for two stations with same lat/long
             $daymet_data = $this->getCachedDaymet($latitude, $longitude, $year, $doy);
-            if($daymet_data) {
-                return $damet_data;
+            if($daymet_data && isset($daymet_data['Daymet']['tmax_winter'])) {
+                return $daymet_data;
             } 
 
             $data = $this->getDaymetData($latitude, $longitude, $year);
@@ -224,8 +225,8 @@ class Station extends Appmodel{
         $prcp_winter = $this->getAccumulation($winter_days, 'prcp');        
         $prcp_spring = $this->getAccumulation($spring_days, 'prcp');
         $prcp_summer = $this->getAccumulation($summer_days, 'prcp');
-        $prcp_fall = $this->getAccumulation($fall_days, 'prcp');
-        
+        $prcp_fall = $this->getAccumulation($fall_days, 'prcp');         
+       
         $daymet_data = array(
             "Daymet" => array(
                 "tmax_winter" => $tmax_winter,
@@ -247,9 +248,19 @@ class Station extends Appmodel{
             )         
         );
         
-        $this->Daymet->save($daymet_data);
+        // first check to see if an entry for this lat/long/year already exist
+        $existing_daymet_data = $this->getCachedDaymet($lat, $long, $year, 1);
+        if($daymet_data && isset($existing_daymet_data['Daymet']['Daymet_ID'])){
+            // if yes then run update and set Daymet_ID according
+            $daymet_id = $existing_daymet_data['Daymet']['Daymet_ID'];
+            $daymet_data["Daymet"]["Daymet_ID"] = $daymet_id;
+            $this->Daymet->save($daymet_data);
+        }else{
+            // else do save and set $daymet_id based on last insert
+            $this->Daymet->save($daymet_data);
+            $daymet_id = $this->Daymet->id;
+        }
 
-        $daymet_id = $this->Daymet->id;
         $gdd = 0;
         $gddf = 0;
         $total_precip = 0;
