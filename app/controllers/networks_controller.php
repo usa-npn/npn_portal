@@ -363,10 +363,9 @@ class NetworksController extends AppController{
 
     }
     
-        public function getObserversByMonth($params=null){
-        
-        
+    public function getObserversByMonth($params=null){
         $network_id = null;
+        $station_ids = array();
         $year = null;
         $results = array();
         $joins = array();
@@ -389,7 +388,11 @@ class NetworksController extends AppController{
          */
         if($this->checkProperty($params, "network_id")){
             $network_id = $params->network_id;
+        } elseif ($this->checkProperty($params, "station_id")){
+            // $station_id = $params->station_id;
+            $station_ids = $this->arrayWrap($params->station_id);
         }
+
         
         if($this->checkProperty($params, "year")){
             $year = $params->year;
@@ -397,7 +400,7 @@ class NetworksController extends AppController{
         
         
         
-        if($network_id == null || $year == null){
+        if(($network_id == null && $station_ids == array()) || $year == null){
             $this->set('results', $results);
             return $results;
         }
@@ -405,174 +408,340 @@ class NetworksController extends AppController{
         $results = new stdClass();
         $results->year = $year;
         $results->network_id = $network_id;
+        $results->station_ids = $station_ids;
         $results->months = array();
         
-        
-        
-        /**
-         * This will run two separate queries for each of the metric's being
-         * counted. This first query gets the number of active observers in the
-         * year.
-         */
-        $conditions = array(
-            'Network.Network_ID' => $network_id,
-            'YEAR(Observation_Date)' => $year
-        );
-        
-        $conditions [] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
-        
-        
-        
-        $joins[] = array(
-            'table' => 'Network_Station',
-            'type' => 'left',
-            'conditions' => array(
-                'Network_Station.Network_ID = Network.Network_ID'                       
-            )                
-        );
-        
-        $joins[] = array(
-            'table' => 'Station_Species_Individual',
-            'type' => 'left',
-            'conditions' => array(
-                'Station_Species_Individual.Station_ID = Network_Station.Station_ID'                       
-            )                
-        );        
-        
-        $joins[] = array(
-            'table' => 'Observation',
-            'type' => 'left',
-            'conditions' => array(
-                'Observation.Individual_ID = Station_Species_Individual.Individual_ID'                       
-            )                
-        );        
-        
-        $active_observers_results = $this->Network->find('all', array(
-           'conditions' => $conditions,
-            'fields' => array(
-                'GROUP_CONCAT(DISTINCT Observer_ID) `Observers`',
-                'MONTH(Observation_Date) `Month`'
-            ),
-            'joins' => $joins,
-            'group' => 'MONTH(Observation_Date)'
-        ));
-        
-        
-        /**
-         * This now has the active observer results stored but will go ahead
-         * and run the other query before doing anything else. The second
-         * query will get the number of new observers added in the month/year.
-         */
-        
-        $conditions = array(
-            'Network.Network_ID' => $network_id,
-            'YEAR(Create_Date)' => $year
-        );
-        
-        $joins = array();
-        $joins[] = array(
-            'table' => 'Network_Person',
-            'type' => 'left',
-            'conditions' => array(
-                'Network_Person.Network_ID = Network.Network_ID'                       
-            )                
-        );
-        $joins[] = array(
-            'table' => 'Person',
-            'type' => 'left',
-            'conditions' => array(
-                'Person.Person_ID = Network_Person.Person_ID'                       
-            )                
-        );        
-        
-        $new_observers_results = $this->Network->find('all', array(
-           'conditions' => $conditions,
-            'fields' => array(
-                'GROUP_CONCAT(Person.Person_ID) `Observers`',
-                'MONTH(Person.Create_Date) `Month`',
-                'Network.Name'
-            ),
-            'joins' => $joins,
-            'group' => 'MONTH(Create_Date)'
-        ));
-        
+        if(!empty($network_id)){
+            /**
+             * This will run two separate queries for each of the metric's being
+             * counted. This first query gets the number of active observers in the
+             * year.
+             */
+            $conditions = array(
+                'Network.Network_ID' => $network_id,
+                'YEAR(Observation_Date)' => $year
+            );
+            
+            $conditions [] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
+            
+            
+            
+            $joins[] = array(
+                'table' => 'Network_Station',
+                'type' => 'left',
+                'conditions' => array(
+                    'Network_Station.Network_ID = Network.Network_ID'                       
+                )                
+            );
+            
+            $joins[] = array(
+                'table' => 'Station_Species_Individual',
+                'type' => 'left',
+                'conditions' => array(
+                    'Station_Species_Individual.Station_ID = Network_Station.Station_ID'                       
+                )                
+            );        
+            
+            $joins[] = array(
+                'table' => 'Observation',
+                'type' => 'left',
+                'conditions' => array(
+                    'Observation.Individual_ID = Station_Species_Individual.Individual_ID'                       
+                )                
+            );        
+            
+            $active_observers_results = $this->Network->find('all', array(
+            'conditions' => $conditions,
+                'fields' => array(
+                    'GROUP_CONCAT(DISTINCT Observer_ID) `Observers`',
+                    'MONTH(Observation_Date) `Month`'
+                ),
+                'joins' => $joins,
+                'group' => 'MONTH(Observation_Date)'
+            ));
+            
+            
+            /**
+             * This now has the active observer results stored but will go ahead
+             * and run the other query before doing anything else. The second
+             * query will get the number of new observers added in the month/year.
+             */
+            
+            $conditions = array(
+                'Network.Network_ID' => $network_id,
+                'YEAR(Create_Date)' => $year
+            );
+            
+            $joins = array();
+            $joins[] = array(
+                'table' => 'Network_Person',
+                'type' => 'left',
+                'conditions' => array(
+                    'Network_Person.Network_ID = Network.Network_ID'                       
+                )                
+            );
+            $joins[] = array(
+                'table' => 'Person',
+                'type' => 'left',
+                'conditions' => array(
+                    'Person.Person_ID = Network_Person.Person_ID'                       
+                )                
+            );        
+            
+            $new_observers_results = $this->Network->find('all', array(
+            'conditions' => $conditions,
+                'fields' => array(
+                    'GROUP_CONCAT(Person.Person_ID) `Observers`',
+                    'MONTH(Person.Create_Date) `Month`',
+                    'Network.Name'
+                ),
+                'joins' => $joins,
+                'group' => 'MONTH(Create_Date)'
+            ));
+            
 
-        /**
-         * Iterate over the results for active observers per month and populate
-         * the results array accordingly.
-         */
-        foreach($active_observers_results as $r){
-            $r = $r[0];
+            /**
+             * Iterate over the results for active observers per month and populate
+             * the results array accordingly.
+             */
+            foreach($active_observers_results as $r){
+                $r = $r[0];
 
-            $obj = new stdClass();
-
-            
-            $obj->active_observers = explode(",",$r['Observers']);
-            $results->months[$r['Month']] = $obj;
-            
-        }
-        
-        
-        /**
-         * Do the same iteration over the new observers per month array and
-         * populate the results array. This loop has to check first to see if
-         * a key has already been set and either creates a new object or
-         * sets the property on the existing object accordingly.
-         */
-        foreach($new_observers_results as $r){
-            
-            $r = $r[0];
-            
-            if(array_key_exists($r['Month'], $results->months)){
-                $results->months[$r['Month']]->new_observers = explode(",",$r['Observers']);
-            }else{
                 $obj = new stdClass();
-                $obj->new_observers = explode(",",$r['Observers']);
+
+                
+                $obj->active_observers = explode(",",$r['Observers']);
                 $results->months[$r['Month']] = $obj;
-            }            
-        }
-        
-        
-        /**
-         * Now, iterate each month of the year. If there is no object present at
-         * all make a new object and set both values to zero.
-         * If there is an object but one of the properties is missing, then set
-         * it to zero.
-         */
-        for($i=1;$i<=12;$i++){
-            if(array_key_exists($i, $results->months)){
-                if(!$this->checkProperty($results->months[$i],"active_observers")){
-                    $results->months[$i]->active_observers = array();
-                }
                 
-                if(!$this->checkProperty($results->months[$i],"new_observers")){
-                    $results->months[$i]->new_observers = array();
-                }
+            }
+            
+            
+            /**
+             * Do the same iteration over the new observers per month array and
+             * populate the results array. This loop has to check first to see if
+             * a key has already been set and either creates a new object or
+             * sets the property on the existing object accordingly.
+             */
+            foreach($new_observers_results as $r){
                 
-            }else{
+                $r = $r[0];
+                
+                if(array_key_exists($r['Month'], $results->months)){
+                    $results->months[$r['Month']]->new_observers = explode(",",$r['Observers']);
+                }else{
+                    $obj = new stdClass();
+                    $obj->new_observers = explode(",",$r['Observers']);
+                    $results->months[$r['Month']] = $obj;
+                }            
+            }
+            
+            
+            /**
+             * Now, iterate each month of the year. If there is no object present at
+             * all make a new object and set both values to zero.
+             * If there is an object but one of the properties is missing, then set
+             * it to zero.
+             */
+            for($i=1;$i<=12;$i++){
+                if(array_key_exists($i, $results->months)){
+                    if(!$this->checkProperty($results->months[$i],"active_observers")){
+                        $results->months[$i]->active_observers = array();
+                    }
+                    
+                    if(!$this->checkProperty($results->months[$i],"new_observers")){
+                        $results->months[$i]->new_observers = array();
+                    }
+                    
+                }else{
+                    $obj = new stdClass();
+                    $obj->new_observers = array();
+                    $obj->active_observers = array();
+                    $results->months[$i] = $obj;
+                }
+            }
+            
+            /**
+             * Sort the array by number and return the results
+             */
+            ksort($results->months, SORT_NUMERIC);
+            
+
+            
+            $db_results = $this->Network->find('first',array(
+                'fields' => array('Network.Name')
+                    ,
+                'conditions' => array('Network.Network_ID' => $network_id)
+            ));       
+            
+            if($db_results != null){
+                $results->network_name = $db_results['Network']['Name'];
+            }
+        } elseif (!empty($station_ids)) {
+            $conditions = array(
+                'YEAR(Observation_Date)' => $year
+            );
+
+            foreach($station_ids as $station_id){
+                $conditions['OR'][] = array('Network_Station.Station_ID' => $station_id);
+            }
+            
+            $conditions[] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
+            
+            $joins[] = array(
+                'table' => 'Network_Station',
+                'type' => 'left',
+                'conditions' => array(
+                    'Network_Station.Network_ID = Network.Network_ID'                       
+                )                
+            );
+            
+            $joins[] = array(
+                'table' => 'Station_Species_Individual',
+                'type' => 'left',
+                'conditions' => array(
+                    'Station_Species_Individual.Station_ID = Network_Station.Station_ID'                       
+                )                
+            );        
+            
+            $joins[] = array(
+                'table' => 'Observation',
+                'type' => 'left',
+                'conditions' => array(
+                    'Observation.Individual_ID = Station_Species_Individual.Individual_ID'                       
+                )                
+            );        
+            
+            $active_observers_results = $this->Network->find('all', array(
+            'conditions' => $conditions,
+                'fields' => array(
+                    'GROUP_CONCAT(DISTINCT Observer_ID) `Observers`',
+                    'MONTH(Observation_Date) `Month`'
+                ),
+                'joins' => $joins,
+                'group' => 'MONTH(Observation_Date)'
+            ));
+            
+            
+            /**
+             * This now has the active observer results stored but will go ahead
+             * and run the other query before doing anything else. The second
+             * query will get the number of new observers added in the month/year.
+             */
+            
+            $conditions = array(
+                'YEAR(Create_Date)' => $year
+            );
+
+            foreach($station_ids as $station_id){
+                $conditions['OR'][] = array('Network_Station.Station_ID' => $station_id);
+            }
+            
+            $joins = array();
+            $joins[] = array(
+                'table' => 'Network_Person',
+                'type' => 'left',
+                'conditions' => array(
+                    'Network_Person.Network_ID = Network.Network_ID'                       
+                )                
+            );
+            $joins[] = array(
+                'table' => 'Person',
+                'type' => 'left',
+                'conditions' => array(
+                    'Person.Person_ID = Network_Person.Person_ID'                       
+                )                
+            );        
+            
+            $new_observers_results = $this->Network->find('all', array(
+            'conditions' => $conditions,
+                'fields' => array(
+                    'GROUP_CONCAT(Person.Person_ID) `Observers`',
+                    'MONTH(Person.Create_Date) `Month`',
+                    'Network.Name'
+                ),
+                'joins' => $joins,
+                'group' => 'MONTH(Create_Date)'
+            ));
+            
+            /**
+             * Iterate over the results for active observers per month and populate
+             * the results array accordingly.
+             */
+            foreach($active_observers_results as $r){
+                $r = $r[0];
+
                 $obj = new stdClass();
-                $obj->new_observers = array();
-                $obj->active_observers = array();
-                $results->months[$i] = $obj;
+
+                
+                $obj->active_observers = explode(",",$r['Observers']);
+                $results->months[$r['Month']] = $obj;
+                
+            }
+            
+            
+            /**
+             * Do the same iteration over the new observers per month array and
+             * populate the results array. This loop has to check first to see if
+             * a key has already been set and either creates a new object or
+             * sets the property on the existing object accordingly.
+             */
+            foreach($new_observers_results as $r){
+                
+                $r = $r[0];
+                
+                if(array_key_exists($r['Month'], $results->months)){
+                    $results->months[$r['Month']]->new_observers = explode(",",$r['Observers']);
+                }else{
+                    $obj = new stdClass();
+                    $obj->new_observers = explode(",",$r['Observers']);
+                    $results->months[$r['Month']] = $obj;
+                }            
+            }
+            
+            
+            /**
+             * Now, iterate each month of the year. If there is no object present at
+             * all make a new object and set both values to zero.
+             * If there is an object but one of the properties is missing, then set
+             * it to zero.
+             */
+            for($i=1;$i<=12;$i++){
+                if(array_key_exists($i, $results->months)){
+                    if(!$this->checkProperty($results->months[$i],"active_observers")){
+                        $results->months[$i]->active_observers = array();
+                    }
+                    
+                    if(!$this->checkProperty($results->months[$i],"new_observers")){
+                        $results->months[$i]->new_observers = array();
+                    }
+                    
+                }else{
+                    $obj = new stdClass();
+                    $obj->new_observers = array();
+                    $obj->active_observers = array();
+                    $results->months[$i] = $obj;
+                }
+            }
+            
+            /**
+             * Sort the array by number and return the results
+             */
+            ksort($results->months, SORT_NUMERIC);
+            
+
+            
+            $db_results = $this->Network->find('first',array(
+                'fields' => array('Network.Name')
+                    ,
+                'conditions' => array('Network_Station.Station_ID' => $station_id)
+            ));       
+            
+            if($db_results != null){
+                $results->network_name = $db_results['Network']['Name'];
             }
         }
         
-        /**
-         * Sort the array by number and return the results
-         */
-        ksort($results->months, SORT_NUMERIC);
         
-
-        
-        $db_results = $this->Network->find('first',array(
-            'fields' => array('Network.Name')
-                ,
-            'conditions' => array('Network.Network_ID' => $network_id)
-        ));       
-        
-        if($db_results != null){
-            $results->network_name = $db_results['Network']['Name'];
-        }
         
         $this->set('results', $results);
         return $results;        
