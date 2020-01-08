@@ -406,8 +406,12 @@ class NetworksController extends AppController{
         
         $results = new stdClass();
         $results->year = $year;
-        $results->network_id = $network_id;
-        $results->station_ids = $station_ids;
+        if(!empty($network_id)){
+            $results->network_id = $network_id;
+        } elseif(!empty($station_ids)) {
+            $results->station_ids = $station_ids;
+        }
+        
         $results->months = array();     
 
         /**
@@ -497,12 +501,22 @@ class NetworksController extends AppController{
             'conditions' => array(
                 'Person.Person_ID = Network_Person.Person_ID'                       
             )                
-        );        
+        );
+
+        if(!empty($station_ids)){
+            $joins[] = array(
+                'table' => 'Network_Station',
+                'type' => 'left',
+                'conditions' => array(
+                    'Network_Station.Network_ID = Network.Network_ID'
+                )                
+            );
+        }
         
         $new_observers_results = $this->Network->find('all', array(
         'conditions' => $conditions,
             'fields' => array(
-                'GROUP_CONCAT(Person.Person_ID) `Observers`',
+                'GROUP_CONCAT(DISTINCT Person.Person_ID) `Observers`',
                 'MONTH(Person.Create_Date) `Month`',
                 'Network.Name'
             ),
