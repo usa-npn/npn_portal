@@ -248,7 +248,7 @@ class ObservationsController extends AppController{
         if($this->checkProperty($search_params, 'is_magnitude') && $search_params->is_magnitude == 1){
             $fields[] = 'count(DISTINCT Species_ID, Phenophase_ID) `count`';
         }else{
-            $fields[] = 'count(CachedObservation.Observation_ID) `count`';
+            $fields[] = 'SQL_CACHE count(CachedObservation.Observation_ID) `count`';
         }
 
         $obsCount = $CachedSummarizedData->find('first', Array(
