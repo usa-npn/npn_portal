@@ -363,6 +363,74 @@ class NetworksController extends AppController{
 
     }
     
+    /**
+     * This is a very unique function. It does actually return JSON or XML or any
+     * formatted data. Instead it sets a view variables 'url' which is then used
+     * by this endpoints view to redirect the client to the specified URL, in this case
+     * it's forwarding the client to a group-specific filtering of the 2020 visualization
+     * tool.
+     * 
+     * This is here because we needed a quick and easy way to translate druapl5.tid values
+     * to usanpn2.Network_IDs, and expose them to a prexisting Drupal view on the website.
+     * Specifically the active LPPs view needed a way to add a link to their filtered
+     * viz tools, but the Drupal site/view don't know how to resolve a TID to a Network_ID
+     * and hence cannot generate a link in the view directly to the viz tool.
+     * 
+     * This solution provides a link to that Drupal view without the need to make a complicated
+     * connection between the two databases or otherwise expose the Network_ID to Drupal.
+     * 
+     * It's a hacky solution but it will do for now.
+     * 
+     * @param type $params - requires the tid of the group as per Drupal
+     */
+    public function getGroupVizToolForward($params=null){
+        $tid = null;
+        
+        if($this->checkProperty($params, "tid")){
+            $tid = $params->tid;
+        }else{
+            $tid = -1;
+        }
+        
+        $results = $this->TaxonomyTermData->find('first', array(
+           'conditions' => array(
+               'TaxonomyTermData.tid' => $tid,
+               'vid' => 6
+           ),
+           'joins' => array(
+               array(
+                   'table' => 'usanpn2.Network',
+                   'alias' => 'Network',
+                   'type' => 'left',
+                   'conditions' => array(
+                       'Network.Drupal_tid = TaxonomyTermData.tid'
+                   )
+               )
+           ),
+           'fields' => array(
+               'TaxonomyTermData.tid',
+               'Network.Network_ID'
+           )
+        ));
+        
+        /**
+         * This code is just to send the user to the correct environment depending
+         * if they're on dev or prod. If localhost default to prod
+         */
+        $domain = $_SERVER['HTTP_HOST'];
+        
+        $data_domain = "data";
+        if(strpos($domain, "dev") !== false){
+            $data_domain = "data-dev";
+        }
+        
+        if(!$results || !$results['Network'] || !$results['Network']['Network_ID'] ){
+            $this->set('url', 'https://' . $data_domain . '.usanpn.org/vis-tool');
+        }else{        
+            $this->set('url', 'https://' . $data_domain . '.usanpn.org/vis-tool/#/explore-phenological-findings;group_id=' . $results['Network']['Network_ID']);
+        }
+    }
+    
     public function getObserversByMonth($params=null){
         $network_id = null;
         $station_ids = array();
