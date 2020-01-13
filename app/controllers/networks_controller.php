@@ -818,6 +818,7 @@ class NetworksController extends AppController{
     
     public function getSiteVisitFrequency($params=null){
         $network_id = null;
+        $station_ids = array();
         $year = null;
         $results = array();
         $joins = array();
@@ -840,6 +841,8 @@ class NetworksController extends AppController{
          */
         if($this->checkProperty($params, "network_id")){
             $network_id = $params->network_id;
+        } elseif ($this->checkProperty($params, "station_id")){
+            $station_ids = $this->arrayWrap($params->station_id);
         }
         
         if($this->checkProperty($params, "year")){
@@ -847,24 +850,34 @@ class NetworksController extends AppController{
         }
         
         
-        if($network_id == null || $year == null){            
+        if(($network_id == null && $station_ids == array()) || $year == null){            
             $this->set('results', $results);
             return $results;
         }
         
         $results = new stdClass();
         $results->year = $year;
-        $results->network_id = $network_id;
+        if(!empty($network_id)){
+            $results->network_id = $network_id;
+        } elseif(!empty($station_ids)) {
+            $results->station_ids = $station_ids;
+        }
         $results->stations = array();
         
         $conditions = array(
-            'Network_Station.Network_ID' => $network_id,
+            // 'Network_Station.Network_ID' => $network_id,
             'Year(Observation_Date)' => $year
         );
         
+        if(!empty($network_id)){
+            $conditions['Network_Station.Network_ID'] = $network_id;
+        } elseif(!empty($station_ids)){
+            foreach($station_ids as $station_id) {
+                $conditions['OR'][] = array('Network_Station.Station_ID' => $station_id);
+            }
+        }
         $conditions [] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
-        
-        
+
         
         $grouping = array(
             'Station_Species_Individual.Station_ID',
