@@ -865,7 +865,6 @@ class NetworksController extends AppController{
         $results->stations = array();
         
         $conditions = array(
-            // 'Network_Station.Network_ID' => $network_id,
             'Year(Observation_Date)' => $year
         );
         
