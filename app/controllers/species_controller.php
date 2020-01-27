@@ -455,10 +455,14 @@ class SpeciesController extends AppController{
         }else{
             $taxon = "species";
         }
+
+        $query = "SELECT";
         
+        if($network_ids == null && $person_ids == null && $station_ids == null) {
+            $query .= " SQL_CACHE";
+        }
         
-        
-        $query = "SELECT SQL_CACHE COUNT(co.Observation_ID) c, csd.Kingdom, csd.Site_ID, csd.Individual_ID, csd.Phenophase_ID,csd.Family_ID, csd.Family_Name, csd.Family_Common_Name," .
+        $query .= " COUNT(co.Observation_ID) c, csd.Kingdom, csd.Site_ID, csd.Individual_ID, csd.Phenophase_ID,csd.Family_ID, csd.Family_Name, csd.Family_Common_Name," .
                 "csd.Order_ID, csd.Order_Name, csd.Order_Common_Name,csd.Class_ID, csd.Class_Name, csd.Class_Common_Name,csd.Species_ID, csd.Common_Name, csd.Genus, csd.Species, " .
                 "s.ITIS_Taxonomic_SN, s.Functional_Type, csd.Genus_ID";
         
