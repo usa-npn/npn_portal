@@ -363,10 +363,77 @@ class NetworksController extends AppController{
 
     }
     
-        public function getObserversByMonth($params=null){
+    /**
+     * This is a very unique function. It does actually return JSON or XML or any
+     * formatted data. Instead it sets a view variables 'url' which is then used
+     * by this endpoints view to redirect the client to the specified URL, in this case
+     * it's forwarding the client to a group-specific filtering of the 2020 visualization
+     * tool.
+     * 
+     * This is here because we needed a quick and easy way to translate druapl5.tid values
+     * to usanpn2.Network_IDs, and expose them to a prexisting Drupal view on the website.
+     * Specifically the active LPPs view needed a way to add a link to their filtered
+     * viz tools, but the Drupal site/view don't know how to resolve a TID to a Network_ID
+     * and hence cannot generate a link in the view directly to the viz tool.
+     * 
+     * This solution provides a link to that Drupal view without the need to make a complicated
+     * connection between the two databases or otherwise expose the Network_ID to Drupal.
+     * 
+     * It's a hacky solution but it will do for now.
+     * 
+     * @param type $params - requires the tid of the group as per Drupal
+     */
+    public function getGroupVizToolForward($params=null){
+        $tid = null;
         
+        if($this->checkProperty($params, "tid")){
+            $tid = $params->tid;
+        }else{
+            $tid = -1;
+        }
         
+        $results = $this->TaxonomyTermData->find('first', array(
+           'conditions' => array(
+               'TaxonomyTermData.tid' => $tid,
+               'vid' => 6
+           ),
+           'joins' => array(
+               array(
+                   'table' => 'usanpn2.Network',
+                   'alias' => 'Network',
+                   'type' => 'left',
+                   'conditions' => array(
+                       'Network.Drupal_tid = TaxonomyTermData.tid'
+                   )
+               )
+           ),
+           'fields' => array(
+               'TaxonomyTermData.tid',
+               'Network.Network_ID'
+           )
+        ));
+        
+        /**
+         * This code is just to send the user to the correct environment depending
+         * if they're on dev or prod. If localhost default to prod
+         */
+        $domain = $_SERVER['HTTP_HOST'];
+        
+        $data_domain = "data";
+        if(strpos($domain, "dev") !== false){
+            $data_domain = "data-dev";
+        }
+        
+        if(!$results || !$results['Network'] || !$results['Network']['Network_ID'] ){
+            $this->set('url', 'https://' . $data_domain . '.usanpn.org/vis-tool');
+        }else{        
+            $this->set('url', 'https://' . $data_domain . '.usanpn.org/vis-tool/#/explore-phenological-findings;group_id=' . $results['Network']['Network_ID']);
+        }
+    }
+    
+    public function getObserversByMonth($params=null){
         $network_id = null;
+        $station_ids = array();
         $year = null;
         $results = array();
         $joins = array();
@@ -389,7 +456,10 @@ class NetworksController extends AppController{
          */
         if($this->checkProperty($params, "network_id")){
             $network_id = $params->network_id;
+        } elseif ($this->checkProperty($params, "station_id")){
+            $station_ids = $this->arrayWrap($params->station_id);
         }
+
         
         if($this->checkProperty($params, "year")){
             $year = $params->year;
@@ -397,32 +467,41 @@ class NetworksController extends AppController{
         
         
         
-        if($network_id == null || $year == null){
+        if(($network_id == null && $station_ids == array()) || $year == null){
             $this->set('results', $results);
             return $results;
         }
         
         $results = new stdClass();
         $results->year = $year;
-        $results->network_id = $network_id;
-        $results->months = array();
+        if(!empty($network_id)){
+            $results->network_id = $network_id;
+        } elseif(!empty($station_ids)) {
+            $results->station_ids = $station_ids;
+        }
         
-        
-        
+        $results->months = array();     
+
         /**
          * This will run two separate queries for each of the metric's being
          * counted. This first query gets the number of active observers in the
          * year.
          */
         $conditions = array(
-            'Network.Network_ID' => $network_id,
             'YEAR(Observation_Date)' => $year
         );
-        
-        $conditions [] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
-        
-        
-        
+        if(!empty($network_id)){
+            $conditions['Network.Network_ID'] = $network_id;
+        } elseif(!empty($station_ids)){
+            $conditions['YEAR(Observation_Date)'] = $year;
+            foreach($station_ids as $station_id){
+                $conditions['OR'][] = array('Network_Station.Station_ID' => $station_id);
+            }
+            
+        }
+        $conditions[] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
+            
+            
         $joins[] = array(
             'table' => 'Network_Station',
             'type' => 'left',
@@ -448,7 +527,7 @@ class NetworksController extends AppController{
         );        
         
         $active_observers_results = $this->Network->find('all', array(
-           'conditions' => $conditions,
+        'conditions' => $conditions,
             'fields' => array(
                 'GROUP_CONCAT(DISTINCT Observer_ID) `Observers`',
                 'MONTH(Observation_Date) `Month`'
@@ -463,12 +542,19 @@ class NetworksController extends AppController{
          * and run the other query before doing anything else. The second
          * query will get the number of new observers added in the month/year.
          */
-        
+            
         $conditions = array(
-            'Network.Network_ID' => $network_id,
             'YEAR(Create_Date)' => $year
         );
-        
+        if(!empty($network_id)){
+            $conditions['Network.Network_ID'] = $network_id;
+        } elseif(!empty($station_ids)) {
+            foreach($station_ids as $station_id){
+                $conditions['OR'][] = array('Network_Station.Station_ID' => $station_id);
+            }
+        }
+            
+            
         $joins = array();
         $joins[] = array(
             'table' => 'Network_Person',
@@ -483,12 +569,22 @@ class NetworksController extends AppController{
             'conditions' => array(
                 'Person.Person_ID = Network_Person.Person_ID'                       
             )                
-        );        
+        );
+
+        if(!empty($station_ids)){
+            $joins[] = array(
+                'table' => 'Network_Station',
+                'type' => 'left',
+                'conditions' => array(
+                    'Network_Station.Network_ID = Network.Network_ID'
+                )                
+            );
+        }
         
         $new_observers_results = $this->Network->find('all', array(
-           'conditions' => $conditions,
+        'conditions' => $conditions,
             'fields' => array(
-                'GROUP_CONCAT(Person.Person_ID) `Observers`',
+                'GROUP_CONCAT(DISTINCT Person.Person_ID) `Observers`',
                 'MONTH(Person.Create_Date) `Month`',
                 'Network.Name'
             ),
@@ -561,18 +657,25 @@ class NetworksController extends AppController{
          * Sort the array by number and return the results
          */
         ksort($results->months, SORT_NUMERIC);
-        
-
-        
-        $db_results = $this->Network->find('first',array(
-            'fields' => array('Network.Name')
-                ,
-            'conditions' => array('Network.Network_ID' => $network_id)
-        ));       
-        
+            
+        if(!empty($network_id)){
+            $db_results = $this->Network->find('first',array(
+                'fields' => array('Network.Name')
+                    ,
+                'conditions' => array('Network.Network_ID' => $network_id)
+            ));       
+        } elseif(!empty($station_ids)){
+            $db_results = $this->Network->find('first',array(
+                'fields' => array('Network.Name')
+                    ,
+                'conditions' => array('Network_Station.Station_ID' => $station_id)
+            )); 
+        }
+            
         if($db_results != null){
             $results->network_name = $db_results['Network']['Name'];
         }
+        
         
         $this->set('results', $results);
         return $results;        
@@ -715,6 +818,7 @@ class NetworksController extends AppController{
     
     public function getSiteVisitFrequency($params=null){
         $network_id = null;
+        $station_ids = array();
         $year = null;
         $results = array();
         $joins = array();
@@ -737,6 +841,8 @@ class NetworksController extends AppController{
          */
         if($this->checkProperty($params, "network_id")){
             $network_id = $params->network_id;
+        } elseif ($this->checkProperty($params, "station_id")){
+            $station_ids = $this->arrayWrap($params->station_id);
         }
         
         if($this->checkProperty($params, "year")){
@@ -744,24 +850,33 @@ class NetworksController extends AppController{
         }
         
         
-        if($network_id == null || $year == null){            
+        if(($network_id == null && $station_ids == array()) || $year == null){            
             $this->set('results', $results);
             return $results;
         }
         
         $results = new stdClass();
         $results->year = $year;
-        $results->network_id = $network_id;
+        if(!empty($network_id)){
+            $results->network_id = $network_id;
+        } elseif(!empty($station_ids)) {
+            $results->station_ids = $station_ids;
+        }
         $results->stations = array();
         
         $conditions = array(
-            'Network_Station.Network_ID' => $network_id,
             'Year(Observation_Date)' => $year
         );
         
+        if(!empty($network_id)){
+            $conditions['Network_Station.Network_ID'] = $network_id;
+        } elseif(!empty($station_ids)){
+            foreach($station_ids as $station_id) {
+                $conditions['OR'][] = array('Network_Station.Station_ID' => $station_id);
+            }
+        }
         $conditions [] = '(Observation.Deleted IS NULL OR Observation.Deleted <> 1  )';
-        
-        
+
         
         $grouping = array(
             'Station_Species_Individual.Station_ID',

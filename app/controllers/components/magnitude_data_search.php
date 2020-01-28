@@ -100,6 +100,7 @@ class MagnitudeDataSearch extends GenericObservationSearch{
  * we reduce our count by 1.
  */            
             "IF(MIN(Phenophase_Status) = 0, COUNT(DISTINCT Individual_ID * Phenophase_Status ) - 1, COUNT(DISTINCT Individual_ID * Phenophase_Status )) `NumIndividuals_with_Yes_Record`",
+            "IF(MIN(Phenophase_Status) = 0, COUNT(DISTINCT Site_ID * Phenophase_Status ) - 1, COUNT(DISTINCT Site_ID * Phenophase_Status )) `NumSites_with_Yes_Record`",
 
 /**
  * These GROUP_CONCAT statements are all ordered by the same variable, so when we later split these strings into an
@@ -553,8 +554,10 @@ class MagnitudeDataSearch extends GenericObservationSearch{
         }else{
             
             
-            $abundance_averages = array();
-            $area_abundances_averages = array();
+            $abundance_averages_grouped_by_site_visit = array();
+            $area_abundance_averages_grouped_by_site_visit = array();
+            $site_visit_to_time_spent = array();
+            $site_visit_to_site_area = array();
             $search_methods_unique = array();
             $site_visits_count = array();
             $site_ids_count = array();
@@ -586,8 +589,16 @@ class MagnitudeDataSearch extends GenericObservationSearch{
                  */
                 if($abundances[$i] > -1 && $time_spent[$i] > 0 && $time_spent[$i] <= 180 && $search_methods[$i] != -9999 && $search_methods[$i] != "Incidental" && $search_methods[$i] != ""){
                     
-                    //The time spent observing is measured in minutes, so we must divide by 60 to get # of hours.
-                    $abundance_averages[] = ($abundances[$i] / ($time_spent[$i] / 60));
+                    //hash site_visit_id to time_spent and site_area
+                    $site_visit_to_time_spent[$site_vists_ids[$i]] = $time_spent[$i];
+                    $site_visit_to_site_area[$site_vists_ids[$i]] = $site_areas[$i];
+
+                    // bin abundances by site visit id
+                    if(array_key_exists($site_vists_ids[$i], $abundance_averages_grouped_by_site_visit)) {
+                        $abundance_averages_grouped_by_site_visit[$site_vists_ids[$i]] += $abundances[$i];
+                    } else {
+                        $abundance_averages_grouped_by_site_visit[$site_vists_ids[$i]] = $abundances[$i];
+                    }
                     
                     if($search_methods[$i] != ""){
                         $search_methods_unique[$search_methods[$i]] = 1;
@@ -601,26 +612,39 @@ class MagnitudeDataSearch extends GenericObservationSearch{
                      * metric per acre, because the criteria for using data is different
                      * We are then only concerned with if the search was an area search.
                      */
-                    if($search_methods[$i] == "Area search" && $site_areas[$i] > 0){
+                    if(($search_methods[$i] == "Area search" || $search_methods[$i] == "Area Search") && $site_areas[$i] > 0){
                         $area_site_ids_count[$site_ids[$i]] = 1;
                         $area_site_visits_count[$site_vists_ids[$i]] = 1;
-                        $area_abundances_averages[] = (($abundances[$i] / ($time_spent[$i] / 60)) / $site_areas[$i]);
+                        
+                        // bin abundances by site visit id
+                        if(array_key_exists($site_vists_ids[$i], $area_abundance_averages_grouped_by_site_visit)) {
+                            $area_abundance_averages_grouped_by_site_visit[$site_vists_ids[$i]] += $abundances[$i];
+                        } else {
+                            $area_abundance_averages_grouped_by_site_visit[$site_vists_ids[$i]] = $abundances[$i];
+                        }
                     }
 
                 }
             }
-            
+
+            // Each division will only happen once as site_visit_id is a unqiue key
+            // The time spent observing is measured in minutes, so we must divide by 60 to get # of hours.
+            foreach ($site_visit_to_time_spent as $site_visit_id => $timespent) {
+                $abundance_averages_grouped_by_site_visit[$site_visit_id] = $abundance_averages_grouped_by_site_visit[$site_visit_id] / ($timespent / 60);
+                if(array_key_exists($site_visit_id, $area_abundance_averages_grouped_by_site_visit)) {
+                    $area_abundance_averages_grouped_by_site_visit[$site_visit_id] = ($area_abundance_averages_grouped_by_site_visit[$site_visit_id] / ($timespent / 60)) / $site_visit_to_site_area[$site_visit_id];
+                }
+            }
             
             
             $data['In-Phase_per_Hr_Search_Method'] = implode(",", array_keys($search_methods_unique));
             $data['In-Phase_per_Hr_Sites_Sample_Size'] = count($site_ids_count);
             $data['In-Phase_per_Hr_Site_Visits_Sample_Size'] = count($site_visits_count);
             
-            if(count($abundance_averages) > 0){
-                $data['Mean_NumAnimals_In-Phase_per_Hr'] = round(array_sum($abundance_averages) / count($abundance_averages), 2);                
-                $data['SE_NumAnimals_In-Phase_per_Hr'] = $this->standardError($abundance_averages);
-                $data['SD_NumAnimals_In-Phase_per_Hr'] = round(stats_standard_deviation($abundance_averages, false), 2);
-                
+            if(count($abundance_averages_grouped_by_site_visit) > 0){
+                $data['Mean_NumAnimals_In-Phase_per_Hr'] = round(array_sum($abundance_averages_grouped_by_site_visit) / count($abundance_averages_grouped_by_site_visit), 2);                
+                $data['SE_NumAnimals_In-Phase_per_Hr'] = $this->standardError($abundance_averages_grouped_by_site_visit);
+                $data['SD_NumAnimals_In-Phase_per_Hr'] = round(stats_standard_deviation($abundance_averages_grouped_by_site_visit, false), 2);    
             }else{
                 $data['Mean_NumAnimals_In-Phase_per_Hr'] = -9999;
                 $data['SE_NumAnimals_In-Phase_per_Hr'] = -9999;
@@ -631,10 +655,10 @@ class MagnitudeDataSearch extends GenericObservationSearch{
             $data['In-Phase_per_Hr_per_Acre_Sites_Sample_Size'] = count($area_site_ids_count);
             $data['In-Phase_per_Hr_per_Acre_Site_Visits_Sample_Size'] = count($area_site_visits_count);
             
-            if(count($area_abundances_averages) > 0){
-                $data['Mean_NumAnimals_In-Phase_per_Hr_per_Acre'] = round(array_sum($area_abundances_averages) / count($area_abundances_averages), 2);
-                $data['SE_NumAnimals_In-Phase_per_Hr_per_Acre'] = $this->standardError($area_abundances_averages);
-                $data['SD_NumAnimals_In-Phase_per_Hr_per_Acre'] = round(stats_standard_deviation($area_abundances_averages, false), 2);
+            if(count($area_abundance_averages_grouped_by_site_visit) > 0){
+                $data['Mean_NumAnimals_In-Phase_per_Hr_per_Acre'] = round(array_sum($area_abundance_averages_grouped_by_site_visit) / count($area_abundance_averages_grouped_by_site_visit), 2);
+                $data['SE_NumAnimals_In-Phase_per_Hr_per_Acre'] = $this->standardError($area_abundance_averages_grouped_by_site_visit);
+                $data['SD_NumAnimals_In-Phase_per_Hr_per_Acre'] = round(stats_standard_deviation($area_abundance_averages_grouped_by_site_visit, false), 2);
                 
             }else{
                 $data['Mean_NumAnimals_In-Phase_per_Hr_per_Acre'] = -9999;
@@ -675,6 +699,7 @@ class MagnitudeDataSearch extends GenericObservationSearch{
             $site_id_count = array();
             $search_methods_unique = array();
             $abundances_used = array();
+            $abundances_grouped_by_site_visit = array();
             
             $total = 0;
             
@@ -688,6 +713,14 @@ class MagnitudeDataSearch extends GenericObservationSearch{
                  */
                 if($abundances[$i] > -1){
                     $site_visits_count[$site_vists_ids[$i]] = 1;
+                    
+                    // group the abundances by site visit
+                    if(array_key_exists($site_vists_ids[$i], $abundances_grouped_by_site_visit)) {
+                        $abundances_grouped_by_site_visit[$site_vists_ids[$i]] += $abundances[$i];
+                    } else {
+                        $abundances_grouped_by_site_visit[$site_vists_ids[$i]] = $abundances[$i];
+                    }
+                    
                     $site_id_count[$site_ids[$i]] = 1;
                     
                     if($search_methods[$i] != "" && $search_methods[$i] != -9999){
@@ -711,9 +744,8 @@ class MagnitudeDataSearch extends GenericObservationSearch{
             
             if($site_visits_count > 0){
                 $data['Mean_NumAnimals_In-Phase'] = round($total / $site_visits_count, 2);
-                $data['SE_NumAnimals_In-Phase'] = $this->standardError($abundances_used);
-                $data['SD_NumAnimals_In-Phase'] = round(stats_standard_deviation($abundances_used, false), 2);
-                
+                $data['SE_NumAnimals_In-Phase'] = $this->standardError($abundances_grouped_by_site_visit);
+                $data['SD_NumAnimals_In-Phase'] = round(stats_standard_deviation($abundances_grouped_by_site_visit, false), 2);
             }else{
                 $data['Mean_NumAnimals_In-Phase'] = -9999;
                 $data['SE_NumAnimals_In-Phase'] = -9999;          
@@ -774,7 +806,6 @@ class MagnitudeDataSearch extends GenericObservationSearch{
         $is_animal = ($data['Kingdom'] == "Animalia");
         
         if($is_animal){
-            $data['NumSites_with_Yes_Record'] = $data['NumIndividuals_with_Yes_Record'];
             $data['NumIndividuals_with_Yes_Record'] = -9999;
             
             $data['Proportion_Sites_with_Yes_Record'] = round($data['NumSites_with_Yes_Record'] / $data['Sites_Sample_Size'], 2);
@@ -815,9 +846,6 @@ class MagnitudeDataSearch extends GenericObservationSearch{
         }
 
         return $answer;
-    }    
-
-
-    
+    }
 
 }

@@ -413,6 +413,7 @@ class SpeciesController extends AppController{
     public function getSpeciesFilter($search_params=null){
         
         $network_ids = null;
+        $person_ids = null;
         $group_ids = null;
         $station_ids = null;
         $start_date = null;
@@ -421,6 +422,10 @@ class SpeciesController extends AppController{
 
         if($this->checkProperty($search_params, "network_id")){     
             $network_ids = $this->arrayWrap($search_params->network_id);            
+        }
+
+        if($this->checkProperty($search_params, "person_id")){     
+            $person_ids = $this->arrayWrap($search_params->person_id);            
         }
         
         if($this->checkProperty($search_params, "group_ids")){     
@@ -450,10 +455,14 @@ class SpeciesController extends AppController{
         }else{
             $taxon = "species";
         }
+
+        $query = "SELECT";
         
+        if($network_ids == null && $person_ids == null && $station_ids == null) {
+            $query .= " SQL_CACHE";
+        }
         
-        
-        $query = "SELECT SQL_CACHE COUNT(co.Observation_ID) c, csd.Kingdom, csd.Site_ID, csd.Individual_ID, csd.Phenophase_ID,csd.Family_ID, csd.Family_Name, csd.Family_Common_Name," .
+        $query .= " COUNT(co.Observation_ID) c, csd.Kingdom, csd.Site_ID, csd.Individual_ID, csd.Phenophase_ID,csd.Family_ID, csd.Family_Name, csd.Family_Common_Name," .
                 "csd.Order_ID, csd.Order_Name, csd.Order_Common_Name,csd.Class_ID, csd.Class_Name, csd.Class_Common_Name,csd.Species_ID, csd.Common_Name, csd.Genus, csd.Species, " .
                 "s.ITIS_Taxonomic_SN, s.Functional_Type, csd.Genus_ID";
         
@@ -502,6 +511,17 @@ class SpeciesController extends AppController{
                 $query .= "OR csd.Network_IDs = '" . $network_id . "' ";
                 $query .= "OR csd.Network_IDs LIKE '" . $network_id . ",%' ";
                 $query .= "OR csd.Network_IDs LIKE '%," . $network_id . "' ";
+            }
+            
+            $query .= ")";
+        }
+
+        if($person_ids != null && !empty($person_ids)){
+            $query .= " AND (";
+            $net_iterate = 0;
+            foreach($person_ids as $person_id){
+                $query .= ($net_iterate++ == 0) ? "" : " OR ";
+                $query .= "co.ObservedBy_Person_ID = '" . $person_id . "' ";
             }
             
             $query .= ")";
