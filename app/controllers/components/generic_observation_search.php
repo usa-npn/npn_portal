@@ -56,7 +56,6 @@ abstract class GenericObservationSearch extends Object{
         $this->ArrayWrap = new ArrayWrapComponent();        
         
         parent::__construct();
-        
     }
     
     abstract public function preprocessResults($data, &$result_set);
@@ -111,7 +110,6 @@ abstract class GenericObservationSearch extends Object{
      * removing the other parameters from the user's request.
      */
     public function cleanTaxonomyParameters($params){
-        
         if($this->CheckProperty->checkProperty($params,'class_id')){
             
             if($this->CheckProperty->checkProperty($params,'order_id')){
@@ -240,8 +238,7 @@ abstract class GenericObservationSearch extends Object{
                             );
                 }
                     
-            }
-                                
+            }      
         }
     }        
 
@@ -341,8 +338,6 @@ abstract class GenericObservationSearch extends Object{
     }
     
     public function processInputParameters($params){
-        
-        
         if($this->CheckProperty->checkProperty($params,'bottom_left_x1') && $this->CheckProperty->checkProperty($params,'bottom_left_y1') &&
                 $this->CheckProperty->checkProperty($params,'upper_right_x2') && $this->CheckProperty->checkProperty($params,'upper_right_y2')){
             
@@ -506,7 +501,6 @@ abstract class GenericObservationSearch extends Object{
         }        
 
         
-        
         if($this->CheckProperty->checkProperty($params,'observation_id')){
             $params->observation_id = $this->ArrayWrap->arrayWrap($params->observation_id);
 
@@ -568,7 +562,6 @@ abstract class GenericObservationSearch extends Object{
     }
     
     public function outputData($params, $out){
-        
         $this->emitter->emitHeader();
         $joins = array();
         
@@ -640,7 +633,7 @@ abstract class GenericObservationSearch extends Object{
             "order" => $this->order_by,
             "joins" => $joins
             ),
-        $this->CachedSummarizedData
+            $this->CachedSummarizedData
         );
 
         $this->log($query);
@@ -688,7 +681,6 @@ abstract class GenericObservationSearch extends Object{
     }
     
     public function appendFields($params, $allowed_values_array) {
-        
         if($this->CheckProperty->checkProperty($params,'additional_field')){
             $params->additional_field = $this->ArrayWrap->arrayWrap($params->additional_field);
             
@@ -729,12 +721,4 @@ abstract class GenericObservationSearch extends Object{
     public function setAggregateFields($aggregate_fields) {
         $this->aggregate_fields = $aggregate_fields;
     }
-
-
-
-
-        
-    
-
-
 }

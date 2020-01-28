@@ -151,7 +151,7 @@ class RawDataObservationSearch extends GenericObservationSearch{
             'family_id' => 'Family_ID',
             'family_name' => 'Family_Name',
             'family_common_name' => 'Family_Common_Name',
-            'genus' => 'Genus',
+            // 'genus' => 'Genus',
             'genus_id' => 'Genus_ID',
             'genus_common_name' => 'Genus_Common_Name',
             'tmax_winter' => 'tmax_winter',
