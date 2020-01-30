@@ -231,7 +231,7 @@ abstract class GenericObservationSearch extends Object{
                                 "Species_Category",
                                 "USDA_PLANTS_Symbol",
                                 "ITIS_Number",
-                                "Genus",
+                                "Genus", // todo: kev
                                 "Species",
                                 "Common_Name"
                                 )
@@ -272,7 +272,7 @@ abstract class GenericObservationSearch extends Object{
                         "Species_Category",
                         "USDA_PLANTS_Symbol",
                         "ITIS_Number",
-                        // "Genus",
+                        "Genus",
                         "Species",
                         "Common_Name"
                         )
@@ -696,10 +696,19 @@ abstract class GenericObservationSearch extends Object{
         foreach($allowed_values_array as $sys_name => $name){
             if(!in_array($sys_name, $params->additional_field)){
                 if(($key = array_search($name, $this->fields)) !== false){
-                    //don't filter requested climate data
-                    if(!(array_key_exists($name, $this->climate_data_selected) && $this->climate_data_selected[$name])) {
-                        unset($this->fields[$key]);
+                    //don't filter requested climate data or genus
+                    $skip = (
+                        array_key_exists($name, $this->climate_data_selected) 
+                        && $this->climate_data_selected[$name]
+                    );
+                        // || $name=='Genus';
+                    if($skip) {
+                        continue;
                     }
+                    unset($this->fields[$key]);
+                    // if(!(array_key_exists($name, $this->climate_data_selected) && $this->climate_data_selected[$name])) {
+                    //     unset($this->fields[$key]);
+                    // }
                 }                
             }
         }
