@@ -51,7 +51,7 @@ class SummarizedDataSearch extends GenericObservationSearch{
             "Elevation_in_Meters",
             "State",
             "Species_ID",
-            "Genus",
+            "Genus", //todo: kev
             "Species",
             "Common_Name",
             "Kingdom",

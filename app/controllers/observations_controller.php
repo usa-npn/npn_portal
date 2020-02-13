@@ -819,7 +819,7 @@ class ObservationsController extends AppController{
 
     }      
      
-     public function getObservations($params, $out, $format){   
+     public function getObservations($params, $out, $format){
          App::import('Component', 'RawDataObservationSearch');
 
          if($this->checkProperty($params, "noHtmlEncoding")){

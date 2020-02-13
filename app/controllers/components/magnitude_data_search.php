@@ -131,7 +131,7 @@ class MagnitudeDataSearch extends GenericObservationSearch{
             'family_name' => 'Family_Name',
             'family_common_name' => 'Family_Common_Name',
             'genus_id' => 'Genus_ID',
-            'genus' => 'Genus', 
+            // 'genus' => 'Genus', 
             'genus_common_name' => 'Genus_Common_Name',       
             'phenophase_category' => 'Phenophase_Category',
             'pheno_class_id' => 'Pheno_Class_ID',
@@ -264,6 +264,10 @@ class MagnitudeDataSearch extends GenericObservationSearch{
 
                 $this->group_by[] = 'Family_ID';
                 $this->removeGroupBy('Species_ID');
+            } else {
+                $params->additional_field = array_merge( 
+                    ($this->CheckProperty->checkProperty($params,'additional_field')) ? $params->additional_field : array(),
+                    array("Genus"));
             }
 
         }
@@ -273,6 +277,7 @@ class MagnitudeDataSearch extends GenericObservationSearch{
         if($this->CheckProperty->checkProperty($params,'order_id')){
             $params->order_id = $this->ArrayWrap->arrayWrap($params->order_id);
             $this->conditions["CachedSummarizedData.Order_ID"] = $params->order_id;
+
             
             if($this->CheckProperty->checkProperty($params,'taxonomy_aggregate')){
                 
@@ -284,6 +289,10 @@ class MagnitudeDataSearch extends GenericObservationSearch{
 
                 $this->group_by[] = 'Order_ID';
                 $this->removeGroupBy('Species_ID');
+            } else {
+                $params->additional_field = array_merge( 
+                    ($this->CheckProperty->checkProperty($params,'additional_field')) ? $params->additional_field : array(),
+                    array("Genus"));
             }
         }        
         
@@ -302,6 +311,10 @@ class MagnitudeDataSearch extends GenericObservationSearch{
                 );
                 $this->group_by[] = 'Class_ID';
                 $this->removeGroupBy("Species_ID");
+            } else {
+                $params->additional_field = array_merge( 
+                    ($this->CheckProperty->checkProperty($params,'additional_field')) ? $params->additional_field : array(),
+                    array("Genus"));
             }
         }
         

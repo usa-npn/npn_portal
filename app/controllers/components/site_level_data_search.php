@@ -128,6 +128,10 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
                 //$this->group_by = array('Family_ID', 'Site_ID', 'Phenophase_ID');                
                 $this->agg_level = "Family_ID";
                 $this->order_by = array('CachedSummarizedData.Site_ID', 'CachedSummarizedData.Family_ID', 'CachedSummarizedData.Phenophase_ID');
+            } else {
+                $params->additional_field = array_merge( 
+                    ($this->CheckProperty->checkProperty($params,'additional_field')) ? $params->additional_field : array(),
+                    array("Genus"));
             }
         }
 
@@ -145,8 +149,12 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
                 //$this->group_by = array('Order_ID', 'Site_ID', 'Phenophase_ID');                
                 $this->agg_level = "Order_ID";
                 $this->order_by = array('CachedSummarizedData.Site_ID', 'CachedSummarizedData.Order_ID', 'CachedSummarizedData.Phenophase_ID');
+            } else {
+                $params->additional_field = array_merge( 
+                    ($this->CheckProperty->checkProperty($params,'additional_field')) ? $params->additional_field : array(),
+                    array("Genus"));
             }
-        }
+        } 
 
         if($this->CheckProperty->checkProperty($params,'class_id')){
             $params->class_id = $this->ArrayWrap->arrayWrap($params->class_id);
@@ -161,8 +169,12 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
                 //$this->group_by = array('Class_ID', 'Site_ID', 'Phenophase_ID');                
                 $this->agg_level = "Class_ID";
                 $this->order_by = array('CachedSummarizedData.Site_ID', 'CachedSummarizedData.Class_ID', 'CachedSummarizedData.Phenophase_ID');
+            } else {
+                $params->additional_field = array_merge( 
+                    ($this->CheckProperty->checkProperty($params,'additional_field')) ? $params->additional_field : array(),
+                    array("Genus"));
             }
-        }
+        } 
 
         $this->searchByPhenoClassID($params);
         if($this->CheckProperty->checkProperty($params,'pheno_class_aggregate')){
