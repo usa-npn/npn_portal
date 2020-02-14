@@ -196,6 +196,7 @@ class StationsController extends AppController{
     public function getStationsForBoundary($params=null){
         
         $conditions = array();
+        $joins = array();
         $stations = array();
         $boundary = null;
         
@@ -208,6 +209,30 @@ class StationsController extends AppController{
                 array('station2NetworkStation')
             ) 
         );
+        
+        
+        if(($this->checkProperty($params, "person_id"))){
+            $params->person_id = $this->arrayWrap($params->person_id);    
+            $conditions['Station.Observer_ID'] = $params->person_id;
+        }
+        
+        if(($this->checkProperty($params, "group_id"))){
+            $params->network_id = $params->group_id;    
+        }
+
+        if(($this->checkProperty($params, "network_id"))){        
+            $params->network_id = $this->arrayWrap($params->network_id);    
+            $conditions['Network_Station.Network_ID'] = $params->network_id;
+
+            $joins = array(
+                array(
+                    "table" => "Network_Station",
+                    "alias" => "Network_Station",
+                    "type" => "LEFT",
+                    "conditions" => "Network_Station.Station_ID = Station.Station_ID"
+                )
+            );
+        }        
         
         
         if($this->checkProperty($params, "boundary_id")){
@@ -232,7 +257,8 @@ class StationsController extends AppController{
             
             $res = $this->Station->find('all', array(
                 'conditions' => $conditions,
-                'fields' => array('Station_ID')
+                'fields' => array('Station_ID'),
+                'joins' => $joins
             ));
             
             foreach($res as $station){
@@ -289,16 +315,16 @@ class StationsController extends AppController{
         }
         
         if(($this->checkProperty($props, "person_id"))){
-            $props->person_id = $this->ArrayWrap->arrayWrap($props->person_id);    
+            $props->person_id = $this->arrayWrap($props->person_id);    
             $conditions['Station.Observer_ID'] = $props->person_id;
-        }
+        }     
         
         if(($this->checkProperty($props, "group_id"))){
             $props->network_id = $props->group_id;    
         }
 
         if(($this->checkProperty($props, "network_id"))){        
-            $props->network_id = $this->ArrayWrap->arrayWrap($props->network_id);    
+            $props->network_id = $this->arrayWrap($props->network_id);    
             $conditions['Network_Station.Network_ID'] = $props->network_id;
 
             $joins = array(
@@ -316,16 +342,16 @@ class StationsController extends AppController{
         $this->Station->query("SET @wkt=GeomFromText(\"" . $wkt ."\")");
         
         $wkt_test = $this->Station->query('SELECT @wkt');
-        
+
         if($wkt_test[0][0]['@wkt'] == null){
             $response->stations = $stations;
             $response->response_messages = "Invalid WKT text";
 
-            $this->set('response', $response);
-            return $response;                  
+            $emitter->emitNode($response);
+            $emitter->emitFooter();
+            return;
         }
         
-
         $res = $this->Station->find('all', array(
             'conditions' => $conditions,
             'fields' => array(
@@ -340,7 +366,7 @@ class StationsController extends AppController{
             ),
             'joins' => $joins
         ));
-        
+
         foreach($res as $r){
 
             $station = new Site();
@@ -348,17 +374,16 @@ class StationsController extends AppController{
             $station->longitude = $r['Station']['Longitude'];
             $station->station_name = $r['Station']['Station_Name'];
             $station->station_id = $r['Station']['Station_ID'];
-            
+ 
             $emitter->emitNode($station);
-            //$stations[] = $station;
+
         }        
         
 
         $response->stations = $stations;
         $response->response_messages = "Success";
 
-//        $this->set('response', $response);
-//        return $response;        
+
         $emitter->emitFooter();
         
         return;
