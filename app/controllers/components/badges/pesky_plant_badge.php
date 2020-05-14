@@ -2,16 +2,17 @@
 
 require_once('abstract_badge.php');
 
-define('PEST_PATROL_CAMPAIGN_DAYS_THRESHOLD', 6);
+define('PESKY_PLANT_CAMPAIGN_DAYS_THRESHOLD', 6);
 
 
-class PestPatrolBadge extends AbstractBadge{
+class PeskyPlantBadge extends AbstractBadge{
         
     private static $qualifying_species_ids;
     
     public function __construct($person_id){
+        
         $this->person_id = $person_id;
-        PestPatrolBadge::$qualifying_species_ids = array(259,1239,1243,1700,1789,1790,1791,1792,1793,1794,1795,1796,1797);
+        PestPatrolBadge::$qualifying_species_ids = array(184,1827);
     }
     
     public function validate(){
@@ -29,12 +30,12 @@ class PestPatrolBadge extends AbstractBadge{
                                 LEFT JOIN usanpn2.Observation o
                                 ON o.Individual_ID = ssi.Individual_ID
                                 WHERE p.Person_ID = " . $this->person_id . " " .
-                                "AND ssi.Species_ID IN (" . implode(",", PestPatrolBadge::$qualifying_species_ids) . ")
+                                "AND ssi.Species_ID IN (" . implode(",", PeskyPlantBadge::$qualifying_species_ids) . ")
                                 GROUP BY o.Observation_Date, o.Individual_ID
                                 ORDER BY ssi.Individual_ID,o.Observation_Date
                                 ) tbl
                                 GROUP BY Individual_ID, YEAR(Observation_Date)
-                                HAVING c >= " . PEST_PATROL_CAMPAIGN_DAYS_THRESHOLD
+                                HAVING c >= " . PESKY_PLANT_CAMPAIGN_DAYS_THRESHOLD
                 );
 
         return count($res) > 0;
@@ -42,4 +43,4 @@ class PestPatrolBadge extends AbstractBadge{
     }
     
 }
-
+?>
