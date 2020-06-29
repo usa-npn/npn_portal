@@ -565,7 +565,9 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
         $metrics_series['Mean_First_Yes_Julian_Date'] = $first_julian_average;
 
         $metrics_series['SE_First_Yes_in_Days'] = $this->standardError($first_yes_doy);
-        $metrics_series['SD_First_Yes_in_Days'] = $this->standardDeviation($first_yes_doy);
+        if(in_array("sd_first_yes_in_days", $this->site_level_fields)){
+            $metrics_series['SD_First_Yes_in_Days'] = $this->standardDeviation($first_yes_doy);
+        }
         if(in_array("min_first_yes_doy", $this->site_level_fields)) {
             $metrics_series['Min_First_Yes_DOY'] = $this->getMin($first_yes_doy);
         }
@@ -579,7 +581,10 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
 
         $metrics_series['Mean_NumDays_Since_Prior_No'] = $this->getAverage($days_since_last_no, false);
         $metrics_series['SE_NumDays_Since_Prior_No'] = $this->standardError($days_since_last_no);
-        $metrics_series['SD_NumDays_Since_Prior_No'] = $this->standardDeviation($days_since_last_no);
+        if(in_array("sd_numdays_since_prior_no", $this->site_level_fields)){
+            $metrics_series['SD_NumDays_Since_Prior_No'] = $this->standardDeviation($days_since_last_no);
+        }
+        
 
         
         $last_julian_average = $this->getAverage($last_yes_julian);
@@ -591,7 +596,11 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
         $metrics_series['Mean_Last_Yes_Julian_Date'] = $last_julian_average;        
 
         $metrics_series['SE_Last_Yes_in_Days'] = $this->standardError($last_yes_julian);
-        $metrics_series['SD_Last_Yes_in_Days'] = $this->standardDeviation($last_yes_julian);
+
+        if(in_array("sd_last_yes_in_days", $this->site_level_fields)){
+            $metrics_series['SD_Last_Yes_in_Days'] = $this->standardDeviation($last_yes_julian);
+        }
+
         if(in_array("min_last_yes_doy", $this->site_level_fields)) {
             $metrics_series['Min_Last_Yes_DOY'] = $this->getMin($last_yes_doy);
         }
@@ -605,10 +614,20 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
 
         $metrics_series['Mean_NumDays_Until_Next_No'] = $this->getAverage($days_until_next_no, false);
         $metrics_series['SE_NumDays_Until_Next_No'] = $this->standardError($days_until_next_no);
-        $metrics_series['SD_NumDays_Until_Next_No'] = $this->standardDeviation($days_until_next_no);
+
+        if(in_array("sd_numdays_until_next_no", $this->site_level_fields)){
+            $metrics_series['SD_NumDays_Until_Next_No'] = $this->standardDeviation($days_until_next_no);
+        }
         
-        $metrics_series['Num_Individuals_with_Multiple_FirstY'] = $num_individuals_multiple_first_y;
-        $metrics_series['Individuals_IDs_with_Multiple_FirstY'] = "'" . implode(',', $individual_ids_mult_y) . "'";
+
+        if(in_array("num_individuals_with_multiple_firsty", $this->site_level_fields)){
+            $metrics_series['Num_Individuals_with_Multiple_FirstY'] = $num_individuals_multiple_first_y;
+        }
+        
+        if(in_array("individuals_ids_with_multiple_firsty", $this->site_level_fields)){
+            $metrics_series['Individuals_IDs_with_Multiple_FirstY'] = "'" . implode(',', $individual_ids_mult_y) . "'";
+        }
+        
         
 
 
