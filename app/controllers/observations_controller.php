@@ -394,14 +394,14 @@ class ObservationsController extends AppController{
         
         
         $query = "
-            SELECT YEAR(o.Observation_Date) `year`,
-            COUNT(o.Observation_ID) `count`, pp.Phenophase_ID, pp.Phenophase_Name, ppp.Seq_Num, pp.Color, csd.Pheno_Class_ID, csd.Pheno_Class_Name, ";
+            SELECT YEAR(co.Observation_Date) `year`,
+            COUNT(co.Observation_ID) `count`, pp.Phenophase_ID, pp.Phenophase_Name, ppp.Seq_Num, pp.Color, csd.Pheno_Class_ID, csd.Pheno_Class_Name, ";
         
 
         
         
         if($species_ids || !$taxonomy_aggregate){
-            $query .= "s.Species_ID, s.Common_Name,";
+            $query .= "csd.Species_ID, csd.Common_Name,";
         }else if($family_ids && $taxonomy_aggregate){
             $query .= "csd.Family_ID, csd.Family_Common_Name, csd.Family_Name,";
         }else if($order_ids && $taxonomy_aggregate){
@@ -411,27 +411,24 @@ class ObservationsController extends AppController{
         }else if ($genus_ids && $taxonomy_aggregate){
             $query .= "csd.Genus_ID, csd.Genus_Common_Name, csd.Genus,";
         }
-        
-        $query .= "
-            GROUP_CONCAT(DISTINCT IF(o.Observation_Extent=1,DATE_FORMAT(o.Observation_Date,'%j'),null) ORDER BY o.Observation_Date) `Dates_Positive`, 
-            GROUP_CONCAT(DISTINCT IF(o.Observation_Extent=0,DATE_FORMAT(o.Observation_Date,'%j'),null) ORDER BY o.Observation_Date) `Dates_Negative`
-            FROM usanpn2.Observation o
-            LEFT JOIN usanpn2.Cached_Phenophase pp
-            ON pp.Phenophase_ID = o.Phenophase_ID
-            LEFT JOIN usanpn2.Cached_Observation co
-            ON co.Observation_ID = o.Observation_ID
+
+            $query .= "
+            GROUP_CONCAT(DISTINCT IF(co.Phenophase_Status=1,DATE_FORMAT(co.Observation_Date,'%j'),null) ORDER BY co.Observation_Date) `Dates_Positive`,
+            GROUP_CONCAT(DISTINCT IF(co.Phenophase_Status=0,DATE_FORMAT(co.Observation_Date,'%j'),null) ORDER BY co.Observation_Date) `Dates_Negative`
+            FROM usanpn2.Cached_Observation co
+            
             LEFT JOIN usanpn2.Cached_Summarized_Data csd
-            ON csd.Series_ID = co.Series_ID
-            LEFT JOIN usanpn2.Station_Species_Individual ssi
-            ON ssi.Individual_ID = o.Individual_ID
-            LEFT JOIN usanpn2.Species s
-            ON s.Species_ID = ssi.Species_ID
+            ON csd.Series_ID = co.Series_ID           
+            
+            LEFT JOIN usanpn2.Cached_Phenophase pp
+            ON pp.Phenophase_ID = csd.Phenophase_ID
+
             LEFT JOIN usanpn2.Protocol_Phenophase ppp
-            ON ppp.Phenophase_ID = o.Phenophase_ID AND ppp.Protocol_ID = o.Protocol_ID
+            ON ppp.Phenophase_ID = csd.Phenophase_ID AND ppp.Protocol_ID = co.Protocol_ID
             WHERE";
         
         if($species_ids){        
-            $query .= " ssi.Species_ID IN (". $species_ids . ")";
+            $query .= " csd.Species_ID IN (". $species_ids . ")";
         }else if($family_ids){
             $query .= " csd.Family_ID IN (". $family_ids . ")";
         }else if($order_ids){
@@ -443,11 +440,11 @@ class ObservationsController extends AppController{
         }
         
         if($station_ids){
-            $query .= " AND ssi.Station_ID IN (" . $station_ids . ") ";
+            $query .= " AND csd.Site_ID IN (" . $station_ids . ") ";
         }
         
         if($phenophase_ids && !$pheno_class_ids){
-            $query .= "AND o.Phenophase_ID IN (" . $phenophase_ids . ")";
+            $query .= "AND csd.Phenophase_ID IN (" . $phenophase_ids . ")";
         }
         
         if($pheno_class_ids){
@@ -477,8 +474,7 @@ class ObservationsController extends AppController{
             $query .= ") ";
         }
         
-        $query .= " AND (o.Observation_Extent = 1 OR o.Observation_Extent = 0)";
-        $query .= " AND (o.Deleted IS NULL OR o.Deleted <> 1) ";
+        $query .= " AND (co.Phenophase_Status = 1 OR co.Phenophase_Status = 0) ";
         $query .= "GROUP BY";
         
             
@@ -491,16 +487,16 @@ class ObservationsController extends AppController{
         }else if($genus_ids && $taxonomy_aggregate){
             $query .= " csd.Genus_ID";
         }else{
-            $query .= " ssi.Species_ID";
+            $query .= " csd.Species_ID";
         }
         
         if(!$pheno_class_aggregate){
-            $query .= ", o.Phenophase_ID";
+            $query .= ", csd.Phenophase_ID";
         }else{
             $query .= ", csd.Pheno_Class_ID";
         }
         
-        $query .= ", YEAR(o.Observation_Date)"
+        $query .= ", YEAR(co.Observation_Date)"
                 . "HAVING (";
         
         
@@ -513,7 +509,7 @@ class ObservationsController extends AppController{
             ORDER BY ";
         
         if($species_ids){
-            $query .= "ssi.Species_ID";
+            $query .= "csd.Species_ID";
         }else if($family_ids && $taxonomy_aggregate){
             $query .= "csd.Family_ID";
         }else if($order_ids && $taxonomy_aggregate){
@@ -523,10 +519,10 @@ class ObservationsController extends AppController{
         }else if($genus_ids && $taxonomy_aggregate){
             $query .= "csd.Genus_ID";
         }else{
-            $query .= "ssi.Species_ID";
+            $query .= "csd.Species_ID";
         }
 
-        $query .= ", o.Phenophase_ID, `year`";
+        $query .= ", co.Phenophase_ID, `year`";
         
 
         $found_species = array();
@@ -550,10 +546,10 @@ class ObservationsController extends AppController{
 
             if($species_ids || !$taxonomy_aggregate){
                 $species = array();
-                $species['species_id'] = intval($res[$i]['s']['Species_ID']);
-                $found_species[] = $res[$i]['s']['Species_ID'];
+                $species['species_id'] = intval($res[$i]['csd']['Species_ID']);
+                $found_species[] = $res[$i]['csd']['Species_ID'];
 
-                $species['common_name'] = $res[$i]['s']['Common_Name'];
+                $species['common_name'] = $res[$i]['csd']['Common_Name'];
                 $species['phenophases'] = array();
                 $phenophase = null;
             
@@ -613,7 +609,7 @@ class ObservationsController extends AppController{
              */
             for($j=$i;$j < $count && 
                     (
-                        (($species_ids || !$taxonomy_aggregate) && ($species['species_id'] == $res[$j]['s']['Species_ID'])) ||
+                        (($species_ids || !$taxonomy_aggregate) && ($species['species_id'] == $res[$j]['csd']['Species_ID'])) ||
                         (($family_ids && $taxonomy_aggregate) && ($species['family_id'] == $res[$j]['csd']['Family_ID'])) ||
                         (($class_ids && $taxonomy_aggregate) && ($species['class_id'] == $res[$j]['csd']['Class_ID'])) ||
                         (($order_ids && $taxonomy_aggregate) && ($species['order_id'] == $res[$j]['csd']['Order_ID'])) ||
@@ -638,7 +634,7 @@ class ObservationsController extends AppController{
                 
                 for($k=$j;$k < $count && 
                         (
-                            (($species_ids || !$taxonomy_aggregate) && ($species['species_id'] == $res[$k]['s']['Species_ID'])) ||
+                            (($species_ids || !$taxonomy_aggregate) && ($species['species_id'] == $res[$k]['csd']['Species_ID'])) ||
                             (($family_ids && $taxonomy_aggregate) && ($species['family_id'] == $res[$k]['csd']['Family_ID'])) ||
                             (($class_ids && $taxonomy_aggregate) && ($species['class_id'] == $res[$k]['csd']['Class_ID'])) ||
                             (($order_ids && $taxonomy_aggregate) && ($species['order_id'] == $res[$k]['csd']['Order_ID'])) ||
