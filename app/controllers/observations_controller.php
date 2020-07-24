@@ -444,11 +444,11 @@ class ObservationsController extends AppController{
         }
         
         if($phenophase_ids && !$pheno_class_ids){
-            $query .= "AND csd.Phenophase_ID IN (" . $phenophase_ids . ")";
+            $query .= " AND csd.Phenophase_ID IN (" . $phenophase_ids . ")";
         }
         
         if($pheno_class_ids){
-            $query .= "AND csd.Pheno_Class_ID IN (" . $pheno_class_ids . ")";
+            $query .= " AND csd.Pheno_Class_ID IN (" . $pheno_class_ids . ")";
         }
         
         if($person_id){
@@ -497,7 +497,7 @@ class ObservationsController extends AppController{
         }
         
         $query .= ", YEAR(co.Observation_Date)"
-                . "HAVING (";
+                . " HAVING (";
         
         
         $i=0;
@@ -522,7 +522,7 @@ class ObservationsController extends AppController{
             $query .= "csd.Species_ID";
         }
 
-        $query .= ", co.Phenophase_ID, `year`";
+        $query .= ", csd.Phenophase_ID, `year`";
         
 
         $found_species = array();
