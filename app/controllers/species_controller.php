@@ -85,7 +85,7 @@ class SpeciesController extends AppController{
                 array('fields' => array("Species_ID", "Common_Name", "Genus", "Species", "ITIS_Taxonomic_SN", "Functional_Type", "Kingdom", 
                     'Class_ID','Species_Class.Common_Name','Species_Class.Name',
                     'Order_ID','Species_Order.Common_Name','Species_Order.Name',
-                    'Family_ID','Species_Family.Common_Name','Species_Family.Name','Species_Genus.Taxon_ID'
+                    'Family_ID','Species_Family.Common_Name','Species_Family.Name','Species_Genus.Taxon_ID','Species_Genus.Common_Name'
                     ),
                       'order' => 'Species.Common_Name',
                       'conditions' => $conditions,
@@ -99,7 +99,7 @@ class SpeciesController extends AppController{
             $obj->common_name = $sp["Species"]["Common_Name"];
             $obj->genus = $sp["Species"]["Genus"];
             $obj->genus_id = $sp["Species_Genus"]["Taxon_ID"];
-            $obj->genus_common_name = $sp["Species"]["Genus_Common_Name"];
+            $obj->genus_common_name = $sp["Species_Genus"]["Common_Name"];
 
             $obj->species = $sp["Species"]["Species"];
             $obj->kingdom = $sp["Species"]["Kingdom"];
