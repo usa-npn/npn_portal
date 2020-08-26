@@ -92,6 +92,13 @@ class AppController extends Controller {
                 App::import('Component', 'JsonEmitter');
                 $emitter = new JsonEmitterComponent($out, $this, $noHtmlEncoding);
                 break;
+            
+            case 'ndjson':
+            case 'NDJSON':
+                App::import('Component', 'NdJsonEmitter');
+                $emitter = new NdJsonEmitterComponent($out, $this, $noHtmlEncoding);
+                break;            
+            
             case 'csv':
             case 'CSV':
                 App::import('Component', 'CsvEmitter');

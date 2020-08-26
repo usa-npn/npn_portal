@@ -64,6 +64,6 @@
         Router::mapResources("create_user");
         Router::mapResources("create_station");
         Router::mapResources("create_individual");        
-        Router::parseExtensions('xml', 'json', 'csv');
+        Router::parseExtensions('xml', 'json', 'csv', 'ndjson');
 
         
