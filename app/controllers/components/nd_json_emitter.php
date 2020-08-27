@@ -21,7 +21,6 @@ class NdJsonEmitterComponent extends GenericEmitter {
 
     public function emitHeader(){
         $this->controller->header('Content-Type: application/json');
-        //$this->out->writeRaw("[");
     }
 
     public function emitNode($arr){
@@ -47,7 +46,7 @@ class NdJsonEmitterComponent extends GenericEmitter {
     }
 
     public function emitFooter(){
-        //$this->out->writeRaw("]");
+        $this->out->writeRaw("\n\n");
     }
     
     

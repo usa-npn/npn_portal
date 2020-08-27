@@ -567,9 +567,27 @@ abstract class GenericObservationSearch extends Object{
         
         $dbo = $this->CachedObservation->getDataSource();
                 
-        
+        /**
+         * These directives are set for the following reasons:
+         *  - group_concat_max_length - some of the queries are string together
+         * long sets of variables in GROUP_CONCAT functions, which have a max-length,
+         * so it needs to be extended here when the records aggregated are many
+         * 
+         *  - net_write_timeout and net_read_timeout - default values are too short
+         * for some services that take a long time to read the query result set
+         * This is particularly true in the R library when it is acquiring AGDD
+         * values for each point. Adding this keeps the connection alive while it
+         * waits for the client to do any work on their side.
+         */
         $query = "SET group_concat_max_len = 16384";
         mysql_unbuffered_query($query);
+        
+        $query = "SET net_write_timeout = 300";
+        mysql_unbuffered_query($query);
+
+        $query = "SET net_read_timeout = 300";
+        mysql_unbuffered_query($query);
+        
         
         if(!empty($params->network) && $params->network != "" && empty($params->network_id)){
             $conditionsSubQuery['Name'] = $params->network;
@@ -623,18 +641,24 @@ abstract class GenericObservationSearch extends Object{
             }    
         }
 
-        $query = $dbo->buildStatement(array(
+        $query_array = array(
             "fields" => $this->fields,
             "table" => $dbo->fullTableName($this->CachedSummarizedData),
             "alias" => 'CachedSummarizedData',
             "conditions" => $this->conditions,
-            "group" => $this->group_by,
             "limit" => null,
             "order" => $this->order_by,
             "joins" => $joins
-            ),
+        );
+
+        if(!empty($this->group_by)){
+            $query_array["group"] = $this->group_by;
+        }
+
+        $query = $dbo->buildStatement($query_array,
             $this->CachedSummarizedData
         );
+
 
         $this->log($query);
         
