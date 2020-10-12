@@ -117,16 +117,13 @@ class Station extends Appmodel{
 
         if(!$station){
             $daymet_data = null;
-
         }else if(isset($station['Daymet']['Year']) && isset($station['Daymet']['tmax_winter'] )){
-
             $latitude = $station['Station']['Short_Latitude'];
             $longitude = $station['Station']['Short_Longitude'];
 
             $daymet_data = $this->getCachedDaymet($latitude, $longitude, $year, $doy);
 
         }else{
-
             $latitude = $station['Station']['Short_Latitude'];
             $longitude = $station['Station']['Short_Longitude'];
 
@@ -141,10 +138,11 @@ class Station extends Appmodel{
             if($data){
                 $this->cacheCoordinates($latitude, $longitude, $year, $data);
                 $daymet_data = $this->getCachedDaymet($latitude, $longitude, $year, $doy);
+            } elseif (is_null($data)){
+                $daymet_data = null;
             }
 
         }
-
         return  $daymet_data;
     }
 
@@ -400,7 +398,6 @@ class Station extends Appmodel{
     }
     
     public function getCachedDaymet($lat, $long, $year, $doy){
-        
         App::import('Model','Daymet');
         $this->Daymet =  new Daymet();
         $this->Daymet->Behaviors->attach('Containable');
@@ -453,19 +450,19 @@ class Station extends Appmodel{
                 $headers[$i] = $tempHeader[0];
             }
             $var_keys = array_slice($headers, 0);
+            $header_map = array_flip($headers);
 
             for($i=DAYMET_HEADER_LINE_COUNT;$i < $c - 1; $i++){
 
                 $values = explode(',', $lines[$i]);
-                //$values = array_slice($values, 1);
-                //$doy = array_shift($values);
-                //$data[(int)$doy] = array_combine($var_keys, $values);
+                if($values[$header_map['year']] != $year) {
+                    $this->log('year received does not match the year given');
+                    return null;
+                }
                 $data[$i-DAYMET_HEADER_LINE_COUNT+1] = array_combine($var_keys, $values);
             }
         }
-        
         return $data;
-
     }
 
     

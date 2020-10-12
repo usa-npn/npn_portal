@@ -695,7 +695,6 @@ class StationsController extends AppController{
     
     
     public function getDaymetData($props=null){
-        
         $station_id = ($this->checkProperty($props, "station_id")) ? $props->station_id : null;
         $year = ($this->checkProperty($props, "year")) ? $props->year : null;
         $doy = ($this->checkProperty($props, "doy")) ? $props->doy : 1;
@@ -704,8 +703,7 @@ class StationsController extends AppController{
             $this->set('daymet', null);
             return null;
         }
-         
-        
+
         $daymet_data = $this->Station->getStationWithClimateData($station_id, $year, $doy);
 
         $this->set('daymet', $daymet_data);
