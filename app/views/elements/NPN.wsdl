@@ -285,6 +285,7 @@
                         <xs:element minOccurs="0" maxOccurs="1" name="snow_ground_percent_covered" type="xs:int"/>
                         <xs:element minOccurs="0" maxOccurs="1" name="snow_canopy" type="xs:boolean"/>
                         <xs:element minOccurs="0" maxOccurs="1" name="animal_search_method" type="xs:string"/>
+                        <xs:element minOccurs="0" maxOccurs="1" name="snow_ground_percent_covered" type="xs:int"/>
                 </xs:sequence>
             </xs:complexType>            
 
@@ -1763,6 +1764,7 @@
                                 <xs:attribute name="snow_on_ground" type="xs:string" />
                                 <xs:attribute name="percent_snow_cover" type="xs:string" />
                                 <xs:attribute name="snow_in_tree_canopy" type="xs:string" />
+                                <xs:attribute name="num_observers_searching" type="xs:string" />
                             </xs:complexType>
                         </xs:element>
                     </xs:sequence>
