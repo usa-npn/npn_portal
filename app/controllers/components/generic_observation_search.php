@@ -229,10 +229,10 @@ abstract class GenericObservationSearch extends Object{
                                 "Species_ID",
                                 "Species_Functional_Type",
                                 "Species_Category",
+                                "Lifecycle_Duration",
+                                "Growth_Habit",
                                 "USDA_PLANTS_Symbol",
                                 "ITIS_Number",
-                                "Growth_Habit",
-                                "Lifecycle_Duration",
                                 "Genus", // todo: kev
                                 "Species",
                                 "Common_Name"

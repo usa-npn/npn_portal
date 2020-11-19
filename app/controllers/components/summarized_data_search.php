@@ -70,10 +70,10 @@ class SummarizedDataSearch extends GenericObservationSearch{
             
             "Species_Functional_Type",
             "Species_Category",
+            "Lifecycle_Duration",
+            "Growth_Habit",
             "USDA_PLANTS_Symbol",
             "ITIS_Number",
-            "Growth_Habit",
-            "Lifecycle_Duration",
             "Individual_ID",
             "Plant_Nickname",
             "Patch",
