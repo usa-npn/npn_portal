@@ -211,7 +211,7 @@ class RawDataObservationSearch extends GenericObservationSearch{
         
         $this->ancillary_urls = array();
         
-        $this->group_by = array('Observation_ID');
+        $this->group_by = array();
                 
         parent::__construct($emitter);
     }
