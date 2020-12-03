@@ -285,6 +285,7 @@
                         <xs:element minOccurs="0" maxOccurs="1" name="snow_ground_percent_covered" type="xs:int"/>
                         <xs:element minOccurs="0" maxOccurs="1" name="snow_canopy" type="xs:boolean"/>
                         <xs:element minOccurs="0" maxOccurs="1" name="animal_search_method" type="xs:string"/>
+                        <xs:element minOccurs="0" maxOccurs="1" name="snow_ground_percent_covered" type="xs:int"/>
                 </xs:sequence>
             </xs:complexType>            
 
@@ -1316,6 +1317,8 @@
                                 <xs:attribute name="kingdom" type="xs:string"/>                        
                                 <xs:attribute name="species_functional_type" type="xs:string"/>
                                 <xs:attribute name="species_categories" type="xs:string"/>
+                                <xs:attribute name="lifecycle_duration" type="xs:string"/>
+                                <xs:attribute name="growth_habit" type="xs:string"/>
                                 <xs:attribute name="usda_plants_symbol" type="xs:string"/>
                                 <xs:attribute name="itis_number" type="xs:int"/>
                                 <xs:attribute name="individual_id" type="xs:int"/>
@@ -1400,6 +1403,8 @@
                                 <xs:attribute name="species_categories" type="xs:string"/>
                                 <xs:attribute name="usda_plants_symbol" type="xs:string"/>
                                 <xs:attribute name="itis_number" type="xs:int"/>
+                                <xs:attribute name="growth_habit" type="xs:string"/>
+                                <xs:attribute name="lifecycle_duration" type="xs:string"/>
                                 <xs:attribute name="individual_id" type="xs:int"/>
                                 <xs:attribute name="plant_nickname" type="xs:string"/>
                                 <xs:attribute name="patch" type="xs:int"/>
@@ -1759,6 +1764,7 @@
                                 <xs:attribute name="snow_on_ground" type="xs:string" />
                                 <xs:attribute name="percent_snow_cover" type="xs:string" />
                                 <xs:attribute name="snow_in_tree_canopy" type="xs:string" />
+                                <xs:attribute name="num_observers_searching" type="xs:string" />
                             </xs:complexType>
                         </xs:element>
                     </xs:sequence>

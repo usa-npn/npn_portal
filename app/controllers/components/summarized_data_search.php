@@ -70,6 +70,8 @@ class SummarizedDataSearch extends GenericObservationSearch{
             
             "Species_Functional_Type",
             "Species_Category",
+            "Lifecycle_Duration",
+            "Growth_Habit",
             "USDA_PLANTS_Symbol",
             "ITIS_Number",
             "Individual_ID",
@@ -147,6 +149,8 @@ class SummarizedDataSearch extends GenericObservationSearch{
             'species_category' => 'Species_Category',
             'usda_plants_symbol' => 'USDA_PLANTS_Symbol',
             'itis_number' => 'ITIS_Number',
+            'growth_habit' => 'Growth_Habit',
+            'lifecycle_duration' => 'Lifecycle_Duration',
             'plant_nickname' => 'Plant_Nickname',
             'patch' => 'Patch',
             'phenophase_category' => 'Phenophase_Category',
