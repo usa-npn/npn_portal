@@ -1038,6 +1038,10 @@ class NetworksController extends AppController{
         
         $this->set('networks', $networks);
         return $networks;
-    }    
+    }
+
+    public function markers(){
+        return;
+    }
 } 
 

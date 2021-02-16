@@ -31,6 +31,8 @@
  * ...and connect the rest of 'Pages' controller's urls.
  */
 	Router::connect('/pages/*', array('controller' => 'pages', 'action' => 'display'));
+        
+        Router::connect('/networks/1markers', array('controller' => 'networks', 'action' => 'markers'));
 
         /**
          * This code pulls in the custom route and passes all requests through it. This is necessary
@@ -65,5 +67,7 @@
         Router::mapResources("create_station");
         Router::mapResources("create_individual");        
         Router::parseExtensions('xml', 'json', 'csv', 'ndjson');
+        
+        
 
         
