@@ -39,7 +39,7 @@ class JsonEmitterComponent extends GenericEmitter {
             else
                 $value = str_replace('"', "'", $value);
             if($i!=0) $this->out->writeRaw(",");
-            $this->out->writeRaw("\"" . strtolower($key) . "\":" . $this->encodeVariable($value));
+            $this->out->writeRaw("\"" . strtolower($key) . "\":" . $this->encodeVariable($key, $value));
             ++$i;
         }
 
@@ -66,10 +66,10 @@ class JsonEmitterComponent extends GenericEmitter {
         foreach($arr as $key => $value){
             
             if(!is_array($value)){
-                $this->out->writeRaw("\"" . $key . "\":" . $this->encodeVariable($value));
+                $this->out->writeRaw("\"" . $key . "\":" . $this->encodeVariable($key, $value));
             }else{
                 
-                if(!is_numeric($key)){                
+                if(!is_numeric($key) || $this->isExplicitString($key)){                
                     $this->out->writeRaw("\"" . trim($key) . "\":" . "[");
                     $this->emitArray($key, $value);   
                     $this->out->writeRaw("]");
@@ -102,7 +102,7 @@ class JsonEmitterComponent extends GenericEmitter {
                 if(!is_numeric($key)){
                     $this->out->writeRaw("\"" . $key . "\":" );
                 }
-                $this->out->writeRaw($this->encodeVariable($value));       
+                $this->out->writeRaw($this->encodeVariable($key, $value));       
             }else{
                 
                 if(!is_numeric($key)){
@@ -125,10 +125,10 @@ class JsonEmitterComponent extends GenericEmitter {
 
     }
 
-    private function encodeVariable($variable){
-
-        if(!is_numeric($variable)) {
-            if (is_string($variable))
+    private function encodeVariable($key, $variable){
+        $is_string =  $this->isExplicitString($key);
+        if(!is_numeric($variable)  || $is_string) {
+            if (is_string($variable) || $is_string )
             {
                 if(strpos($variable, "\\") !== false) $variable = str_replace("\\", "\\\\", $variable);
                 if(strpos($variable, "\r") !== false) $variable = str_replace("\r", "\\r", $variable);
