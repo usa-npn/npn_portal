@@ -274,6 +274,10 @@ class RawDataObservationSearch extends GenericObservationSearch{
         if(in_array("Observation_Comments", $this->fields)) {
             $data['Observation_Comments'] =  preg_replace('/[^(\x20-\x7F)]*/','',  $data['Observation_Comments']);
         }
+        
+        if(in_array("Plant_Nickname", $this->fields)) {
+            $data['Plant_Nickname'] =  ltrim($Plant_Nickname,"0");
+        }        
 
         if(in_array('dataset_link', $this->ancillary_urls)){
             $data['Datasets'] = 'https://www.usanpn.org/npn_portal/observations/getDatasetDetails.json?pretty=1';
