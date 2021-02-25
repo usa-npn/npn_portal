@@ -276,7 +276,7 @@ class RawDataObservationSearch extends GenericObservationSearch{
         }
         
         if(in_array("Plant_Nickname", $this->fields)) {
-            $data['Plant_Nickname'] =  ltrim($Plant_Nickname,"0");
+            $data['Plant_Nickname'] =  ltrim($data['Plant_Nickname'],"0");
         }        
 
         if(in_array('dataset_link', $this->ancillary_urls)){
