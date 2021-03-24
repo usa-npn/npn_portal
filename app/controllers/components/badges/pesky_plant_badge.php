@@ -12,7 +12,7 @@ class PeskyPlantBadge extends AbstractBadge{
     public function __construct($person_id){
         
         $this->person_id = $person_id;
-        PeskyPlantBadge::$qualifying_species_ids = array(184,1827);
+        PeskyPlantBadge::$qualifying_species_ids = array(184,1827, 1859);
     }
     
     public function validate(){
