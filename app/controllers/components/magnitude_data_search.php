@@ -158,9 +158,7 @@ class MagnitudeDataSearch extends GenericObservationSearch{
         $this->magnitude_fields = array(            
         );
         
-        $this->order_by = array('CachedSummarizedData.Species_ID', 'CachedSummarizedData.Phenophase_ID', 'CachedObservation.Observation_Date');
-        
-        
+
         parent::__construct($emitter);
         
         /**

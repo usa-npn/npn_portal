@@ -51,6 +51,8 @@ class SiteLevelDataSearch extends SummarizedDataSearch{
         'gddf'
     );
     
+    protected $order_by = array('CachedSummarizedData.Site_ID', 'CachedSummarizedData.Species_ID', 'CachedSummarizedData.Phenophase_ID');
+    
     
     public function __construct($emitter){            
 

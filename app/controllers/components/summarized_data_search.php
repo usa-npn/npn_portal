@@ -205,7 +205,7 @@ class SummarizedDataSearch extends GenericObservationSearch{
             'multiple_firsty' => 'Multiple_FirstY'
         );
         
-        $this->group_by = array('CachedObservation.Series_ID');
+        $this->group_by = array('CachedSummarizedData.Series_ID');
 
         parent::__construct($emitter);
     }

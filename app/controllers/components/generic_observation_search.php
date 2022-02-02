@@ -11,7 +11,7 @@ abstract class GenericObservationSearch extends Object{
     protected $group_by;
     protected $aggregate_fields;
     
-    protected $order_by = array('CachedSummarizedData.Site_ID', 'CachedSummarizedData.Species_ID', 'CachedSummarizedData.Phenophase_ID');
+    protected $order_by = array();
     
     protected $climate_data_selected = ["tmax_winter" => false,
             "tmax_spring" => false,
@@ -651,12 +651,24 @@ abstract class GenericObservationSearch extends Object{
             "alias" => 'CachedSummarizedData',
             "conditions" => $this->conditions,
             "limit" => null,
-            "order" => $this->order_by,
             "joins" => $joins
         );
 
         if(!empty($this->group_by)){
             $query_array["group"] = $this->group_by;
+        }
+        
+        /**
+         * One way to prevent using filesort, temporary tables/files
+         * is to have group by and order by clauses match.
+         * In most cases this is easy to do, but if order by is populated
+         * then that is used, otherwise attempt to use group by for order
+         * if it is set.
+         */
+        if(!empty($this->order_by)){
+            $query_array["order"] = $this->order_by;
+        }else if(!empty($this->group_by)){
+            $query_array["order"] = $this->group_by;
         }
 
         $query = $dbo->buildStatement($query_array,
