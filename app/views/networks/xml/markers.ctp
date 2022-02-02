@@ -1,4 +1,3 @@
-<?xml version="1.0"?>
 <markers>
 	<marker>
 		<map_id>1</map_id>
