@@ -251,7 +251,7 @@ class StationsController extends AppController{
         }
         
         if($boundary){
-            $conditions["ST_Contains(GeomFromText(\"" . $boundary['Boundary']['Simple_WKT'] . "\"),GeomFromText(CONCAT(\"POINT(\",Longitude,\" \",Latitude,\")\")))"] = 1;
+            $conditions["ST_Contains(ST_GeomFromText(\"" . $boundary['Boundary']['Simple_WKT'] . "\"),ST_GeomFromText(CONCAT(\"POINT(\",Longitude,\" \",Latitude,\")\")))"] = 1;
             
             $this->log($conditions);
             
@@ -339,7 +339,7 @@ class StationsController extends AppController{
         
         $this->Station->recursive = -1;
         
-        $this->Station->query("SET @wkt=GeomFromText(\"" . $wkt ."\")");
+        $this->Station->query("SET @wkt=ST_GeomFromText(\"" . $wkt ."\")");
         
         $wkt_test = $this->Station->query('SELECT @wkt');
 
@@ -355,7 +355,7 @@ class StationsController extends AppController{
         $res = $this->Station->find('all', array(
             'conditions' => $conditions,
             'fields' => array(
-                "ST_Contains(@wkt,GeomFromText(CONCAT(\"POINT(\",Station.Longitude,\" \",Station.Latitude,\")\"))) `in_poly`",
+                "ST_Contains(@wkt,ST_GeomFromText(CONCAT(\"POINT(\",Station.Longitude,\" \",Station.Latitude,\")\"))) `in_poly`",
                 "Station.Latitude",
                 "Station.Longitude",
                 "Station.Station_ID",
