@@ -1,0 +1,64 @@
+
+# src/openapi/individuals.yaml
+openapi: 3.1.0
+info:
+  title: individuals API
+  version: 1.0.0
+paths:
+  /individuals:
+    get:
+      summary: Get all individuals
+      responses:
+        '200':
+          description: A list of individuals
+    post:
+      summary: Create new individuals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+  /individuals/{id}:
+    get:
+      summary: Get individuals by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A individuals
+    put:
+      summary: Update individuals
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete individuals
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
