@@ -1,0 +1,33 @@
+version: "3"
+services:
+  # TODO: need to change mariadb to mysql.
+  mariadb:
+    container_name: mariadb
+    networks:
+      - backend
+    image: mariadb
+    restart: always
+    ports:
+      - "3306:3306"
+    volumes:
+      - /opt/lampp/var/mysql:/var/lib/mysql
+      - /opt/lampp/etc/my.conf:/etc/my.cnf
+  webserver:
+    container_name: npn_portal_dev
+    networks:
+      - frontend
+      - backend
+    build: .
+    volumes:
+      - ../../:/var/www/app/npn_portal
+      - ../../apache2.conf:/etc/apache2/apache2.conf
+      - ../../dockerapp.conf:/etc/apache2/sites-enabled/app.conf
+      - ./xdebug/xdebug.ini:/etc/php/5.6/apache2/conf.d/xdebug.ini
+    ports:
+      - "443:443"
+      - "8083:80"
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge

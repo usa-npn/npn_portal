@@ -1,0 +1,64 @@
+
+# src/openapi/phenophases.yaml
+openapi: 3.1.0
+info:
+  title: phenophases API
+  version: 1.0.0
+paths:
+  /phenophases:
+    get:
+      summary: Get all phenophases
+      responses:
+        '200':
+          description: A list of phenophases
+    post:
+      summary: Create new phenophases
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+  /phenophases/{id}:
+    get:
+      summary: Get phenophases by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A phenophases
+    put:
+      summary: Update phenophases
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete phenophases
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted

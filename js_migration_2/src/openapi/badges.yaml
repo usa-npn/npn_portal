@@ -1,0 +1,64 @@
+
+# src/openapi/badges.yaml
+openapi: 3.1.0
+info:
+  title: badges API
+  version: 1.0.0
+paths:
+  /badges:
+    get:
+      summary: Get all badges
+      responses:
+        '200':
+          description: A list of badges
+    post:
+      summary: Create new badges
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+  /badges/{id}:
+    get:
+      summary: Get badges by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A badges
+    put:
+      summary: Update badges
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete badges
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted

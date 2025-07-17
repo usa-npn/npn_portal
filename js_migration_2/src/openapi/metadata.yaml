@@ -1,0 +1,64 @@
+
+# src/openapi/metadata.yaml
+openapi: 3.1.0
+info:
+  title: metadata API
+  version: 1.0.0
+paths:
+  /metadata:
+    get:
+      summary: Get all metadata
+      responses:
+        '200':
+          description: A list of metadata
+    post:
+      summary: Create new metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+  /metadata/{id}:
+    get:
+      summary: Get metadata by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A metadata
+    put:
+      summary: Update metadata
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete metadata
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted

@@ -1,0 +1,64 @@
+
+# src/openapi/species.yaml
+openapi: 3.1.0
+info:
+  title: species API
+  version: 1.0.0
+paths:
+  /species:
+    get:
+      summary: Get all species
+      responses:
+        '200':
+          description: A list of species
+    post:
+      summary: Create new species
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Created
+  /species/{id}:
+    get:
+      summary: Get species by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A species
+    put:
+      summary: Update species
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete species
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
