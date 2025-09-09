@@ -280,21 +280,21 @@ class RawDataObservationSearch extends GenericObservationSearch{
         }        
 
         if(in_array('dataset_link', $this->ancillary_urls)){
-            $data['Datasets'] = 'https://www.usanpn.org/npn_portal/observations/getDatasetDetails.json?pretty=1';
+            $data['Datasets'] = 'https://services.usanpn.org/npn_portal/observations/getDatasetDetails.json?pretty=1';
         }
 
         if(in_array('individual_link', $this->ancillary_urls)){
-            $data['Individual'] = 'https://www.usanpn.org/npn_portal/individuals/getPlantDetails.json?individual_id=' . $data['Individual_ID'];
+            $data['Individual'] = 'https://services.usanpn.org/npn_portal/individuals/getPlantDetails.json?individual_id=' . $data['Individual_ID'];
         }
         
         if(in_array('phenophase_definition_link', $this->ancillary_urls)){
-            $data['Phenophase'] = 'https://www.usanpn.org/npn_portal/phenophases/getPhenophasesForSpecies.json?species_id[0]=' . $data['Species_ID'] . 
+            $data['Phenophase'] = 'https://services.usanpn.org/npn_portal/phenophases/getPhenophasesForSpecies.json?species_id[0]=' . $data['Species_ID'] . 
                     '&date=' . $data['Observation_Date'] . 
                     '&phenophase_id=' . $data['Phenophase_ID'];
         }
 
         if(in_array("abundance_link", $this->ancillary_urls)){
-            $data['Intensity_Categories'] = 'https://www.usanpn.org/npn_portal/phenophases/getAbundanceCategories.json?pretty=1';
+            $data['Intensity_Categories'] = 'https://services.usanpn.org/npn_portal/phenophases/getAbundanceCategories.json?pretty=1';
         }        
 		
         return array($data);
