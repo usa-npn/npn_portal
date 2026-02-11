@@ -88,7 +88,7 @@ class DATABASE_CONFIG {
 		$this->gis['login'] = getenv('WEBSERVICE_POSTGRES_LOGIN');
 		$this->gis['password'] = getenv('WEBSERVICE_POSTGRES_PASS');
 		$this->gis['database'] = getenv('WEBSERVICE_POSTGRES_DB');
-		$this->gis['host'] = getenv('WEBSERVICE_POSTGRES_HOST');                
+		$this->gis['host'] = '150.135.175.16';//getenv('WEBSERVICE_POSTGRES_HOST');                
 	}
 
 	var $default = array(
