@@ -312,7 +312,7 @@ router.post('/enter_observation_details', async (req, res) => {
 });
 
 // GET /get_observation_details
-router.get('/get_observation_details', async (req, res) => {
+router.all('/get_observation_details', async (req, res) => {
   try {
     const p = req.query;
 

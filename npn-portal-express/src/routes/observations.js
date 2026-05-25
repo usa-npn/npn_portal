@@ -67,7 +67,7 @@ function buildObservationFilters(p) {
 }
 
 // GET /get_observation_comment
-router.get('/get_observation_comment', async (req, res) => {
+router.all('/get_observation_comment', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'observation_id')) {
       return res.json({ observation_comment: null });
@@ -87,7 +87,7 @@ router.get('/get_observation_comment', async (req, res) => {
 });
 
 // GET /get_all_observations_for_species
-router.get('/get_all_observations_for_species', async (req, res) => {
+router.all('/get_all_observations_for_species', async (req, res) => {
   try {
     const p = req.query;
 
@@ -184,7 +184,7 @@ router.get('/get_all_observations_for_species', async (req, res) => {
 });
 
 // GET /get_observations_count
-router.get('/get_observations_count', async (req, res) => {
+router.all('/get_observations_count', async (req, res) => {
   try {
     // Support both GET query params and POST body (old API used POST with JSON body)
     const p = { ...req.query, ...(req.body || {}) };
@@ -252,7 +252,7 @@ router.get('/get_observations_count', async (req, res) => {
 });
 
 // GET /get_observation_dates
-router.get('/get_observation_dates', async (req, res) => {
+router.all('/get_observation_dates', async (req, res) => {
   try {
     const p = req.query;
 
@@ -368,7 +368,7 @@ router.get('/get_observation_dates', async (req, res) => {
 });
 
 // GET /get_observation_by_id
-router.get('/get_observation_by_id', async (req, res) => {
+router.all('/get_observation_by_id', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'observation_id')) {
       return res.status(400).json({ error: 'observation_id is required' });
@@ -389,7 +389,7 @@ router.get('/get_observation_by_id', async (req, res) => {
 });
 
 // GET /get_dataset_details
-router.get('/get_dataset_details', async (req, res) => {
+router.all('/get_dataset_details', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Dataset_ID, Dataset_Name, Dataset_Description, Contact_Name,
@@ -512,7 +512,7 @@ const ADDITIONAL_FIELD_MAP = {
 const BASE_OBSERVATION_KEYS = new Set(['update_datetime']);
 
 // GET /get_observations
-router.get('/get_observations', async (req, res) => {
+router.all('/get_observations', async (req, res) => {
   const p = req.query;
   const conditions = [];
   const params = [];
@@ -667,7 +667,7 @@ router.get('/get_observations', async (req, res) => {
 });
 
 // GET /get_summarized_data
-router.get('/get_summarized_data', async (req, res) => {
+router.all('/get_summarized_data', async (req, res) => {
   const p = req.query;
 
   if (!checkProperty(p, 'start_date') || !checkProperty(p, 'end_date')) {
@@ -824,7 +824,7 @@ router.get('/get_summarized_data', async (req, res) => {
 });
 
 // GET /get_site_level_data
-router.get('/get_site_level_data', async (req, res) => {
+router.all('/get_site_level_data', async (req, res) => {
   const p = req.query;
 
   if (!checkProperty(p, 'start_date') || !checkProperty(p, 'end_date')) {
@@ -1083,7 +1083,7 @@ router.get('/get_site_level_data', async (req, res) => {
 });
 
 // GET /get_magnitude_data
-router.get('/get_magnitude_data', async (req, res) => {
+router.all('/get_magnitude_data', async (req, res) => {
   const p = req.query;
 
   if (!checkProperty(p, 'start_date') || !checkProperty(p, 'end_date')) {
@@ -1412,7 +1412,7 @@ router.get('/get_magnitude_data', async (req, res) => {
 });
 
 // GET /get_observation_group_details
-router.get('/get_observation_group_details', async (req, res) => {
+router.all('/get_observation_group_details', async (req, res) => {
   const p = req.query;
   const conditions = [];
   const params = [];

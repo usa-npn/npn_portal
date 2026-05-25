@@ -7,7 +7,7 @@ const resolveBooleanText = require('../utils/resolveBooleanText');
 const arrayWrap = require('../utils/arrayWrap');
 
 // GET /get_partner_networks
-router.get('/get_partner_networks', async (req, res) => {
+router.all('/get_partner_networks', async (req, res) => {
   try {
     const p = req.query;
     const activeOnly = resolveBooleanText(p, 'active_only', false);
@@ -71,7 +71,7 @@ router.get('/get_partner_networks', async (req, res) => {
 });
 
 // GET /get_networks_for_user
-router.get('/get_networks_for_user', async (req, res) => {
+router.all('/get_networks_for_user', async (req, res) => {
   try {
     const { user_id, user_pw, access_token, consumer_key } = req.query;
     const personId = await verifyUser(user_id, user_pw, access_token, consumer_key);
@@ -97,7 +97,7 @@ router.get('/get_networks_for_user', async (req, res) => {
 });
 
 // GET /get_user_network_status
-router.get('/get_user_network_status', async (req, res) => {
+router.all('/get_user_network_status', async (req, res) => {
   try {
     const p = req.query;
 
@@ -132,7 +132,7 @@ router.get('/get_user_network_status', async (req, res) => {
 });
 
 // GET /get_species_for_network
-router.get('/get_species_for_network', async (req, res) => {
+router.all('/get_species_for_network', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'network_id')) {
       return res.status(400).json({ error: 'network_id is required' });
@@ -173,7 +173,7 @@ router.get('/get_species_for_network', async (req, res) => {
 });
 
 // GET /get_admins_for_network
-router.get('/get_admins_for_network', async (req, res) => {
+router.all('/get_admins_for_network', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'network_id')) {
       return res.status(400).json({ error: 'network_id is required' });
@@ -205,7 +205,7 @@ router.get('/get_admins_for_network', async (req, res) => {
 });
 
 // GET /get_network_tree
-router.get('/get_network_tree', async (req, res) => {
+router.all('/get_network_tree', async (req, res) => {
   try {
     // Fetch full Drupal taxonomy hierarchy for vid=6 (network groups) cross-joined with NPN Network table
     // Use drupalPool since the NPN user can't access Drupal tables

@@ -7,7 +7,7 @@ const checkProperty = require('../utils/checkProperty');
 const arrayWrap = require('../utils/arrayWrap');
 
 // GET /get_person_id_from_drupal_id
-router.get('/get_person_id_from_drupal_id', async (req, res) => {
+router.all('/get_person_id_from_drupal_id', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'drupal_id')) {
       return res.status(400).json({ error: 'drupal_id is required' });
@@ -33,7 +33,7 @@ router.get('/get_person_id_from_drupal_id', async (req, res) => {
 });
 
 // GET /get_user_update
-router.get('/get_user_update', async (req, res) => {
+router.all('/get_user_update', async (req, res) => {
   try {
     if (isNotSecure(req)) {
       return res.status(403).json({ timestamp: -1, error: 'HTTPS required' });
@@ -63,7 +63,7 @@ router.get('/get_user_update', async (req, res) => {
 });
 
 // GET /get_observer_details
-router.get('/get_observer_details', async (req, res) => {
+router.all('/get_observer_details', async (req, res) => {
   const p = req.query;
   let ids = [];
 

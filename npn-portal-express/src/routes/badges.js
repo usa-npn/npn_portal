@@ -80,7 +80,7 @@ router.post('/check_user_badge', async (req, res) => {
 });
 
 // GET /get_user_badges
-router.get('/get_user_badges', async (req, res) => {
+router.all('/get_user_badges', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'person_id')) {
       return res.status(400).json({ error: 'person_id is required' });
@@ -111,7 +111,7 @@ router.get('/get_user_badges', async (req, res) => {
 });
 
 // GET /get_badges
-router.get('/get_badges', async (req, res) => {
+router.all('/get_badges', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Badge_ID, Name_External, Description, Image_URL FROM usanpn2.Badge`

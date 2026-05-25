@@ -5,7 +5,7 @@ const checkProperty = require('../utils/checkProperty');
 const arrayWrap = require('../utils/arrayWrap');
 
 // GET /get_individuals_of_species_at_stations
-router.get('/get_individuals_of_species_at_stations', async (req, res) => {
+router.all('/get_individuals_of_species_at_stations', async (req, res) => {
   try {
     const p = req.query;
 
@@ -61,7 +61,7 @@ router.get('/get_individuals_of_species_at_stations', async (req, res) => {
 });
 
 // GET /get_individuals_at_stations
-router.get('/get_individuals_at_stations', async (req, res) => {
+router.all('/get_individuals_at_stations', async (req, res) => {
   try {
     const p = req.query;
 
@@ -114,7 +114,7 @@ router.get('/get_individuals_at_stations', async (req, res) => {
 });
 
 // GET /get_individual_by_id
-router.get('/get_individual_by_id', async (req, res) => {
+router.all('/get_individual_by_id', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'individual_id')) {
       return res.status(400).json({ error: 'individual_id is required' });
@@ -147,7 +147,7 @@ router.get('/get_individual_by_id', async (req, res) => {
 });
 
 // GET /get_shade_statuses
-router.get('/get_shade_statuses', async (req, res) => {
+router.all('/get_shade_statuses', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Allowed_Value
@@ -166,7 +166,7 @@ router.get('/get_shade_statuses', async (req, res) => {
 });
 
 // GET /get_plant_details
-router.get('/get_plant_details', async (req, res) => {
+router.all('/get_plant_details', async (req, res) => {
   const p = req.query;
   let ids = [];
 

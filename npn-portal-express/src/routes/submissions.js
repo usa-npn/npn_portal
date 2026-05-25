@@ -5,7 +5,7 @@ const { verifyUser } = require('../utils/validateUser');
 const { isNotSecure } = require('../utils/httpsCheck');
 
 // GET /get_last_submission_for_person
-router.get('/get_last_submission_for_person', async (req, res) => {
+router.all('/get_last_submission_for_person', async (req, res) => {
   try {
     if (isNotSecure(req)) {
       return res.status(403).json({

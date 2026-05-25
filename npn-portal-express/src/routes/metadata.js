@@ -23,7 +23,7 @@ const ALLOWED_TYPES = new Set([
 ]);
 
 // GET /get_metadata_fields
-router.get('/get_metadata_fields', async (req, res) => {
+router.all('/get_metadata_fields', async (req, res) => {
   try {
     const p = req.query;
     const conditions = [];

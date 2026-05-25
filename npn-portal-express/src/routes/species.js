@@ -6,7 +6,7 @@ const resolveBooleanText = require('../utils/resolveBooleanText');
 const arrayWrap = require('../utils/arrayWrap');
 
 // GET /get_species
-router.get('/get_species', async (req, res) => {
+router.all('/get_species', async (req, res) => {
   try {
     const p = req.query;
     const includeRestricted = resolveBooleanText(p, 'include_restricted', false);
@@ -97,7 +97,7 @@ router.get('/get_species', async (req, res) => {
 });
 
 // GET /get_taxon
-router.get('/get_taxon', async (req, res) => {
+router.all('/get_taxon', async (req, res) => {
   try {
     const p = req.query;
     const conditions = [];
@@ -152,7 +152,7 @@ router.get('/get_taxon', async (req, res) => {
 });
 
 // GET /get_species_by_state
-router.get('/get_species_by_state', async (req, res) => {
+router.all('/get_species_by_state', async (req, res) => {
   try {
     const p = req.query;
 
@@ -203,7 +203,7 @@ router.get('/get_species_by_state', async (req, res) => {
 });
 
 // GET /get_species_update_date
-router.get('/get_species_update_date', async (req, res) => {
+router.all('/get_species_update_date', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Update_Date FROM usanpn2.Update_Date WHERE Table_Name = 'species' LIMIT 1`
@@ -217,7 +217,7 @@ router.get('/get_species_update_date', async (req, res) => {
 });
 
 // GET /get_plant_types
-router.get('/get_plant_types', async (req, res) => {
+router.all('/get_plant_types', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT st.Species_Type, st.Species_Type_ID, COUNT(DISTINCT s.Species_ID) AS species_count
@@ -243,7 +243,7 @@ router.get('/get_plant_types', async (req, res) => {
 });
 
 // GET /get_animal_types
-router.get('/get_animal_types', async (req, res) => {
+router.all('/get_animal_types', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT st.Species_Type, st.Species_Type_ID, COUNT(DISTINCT s.Species_ID) AS species_count
@@ -269,7 +269,7 @@ router.get('/get_animal_types', async (req, res) => {
 });
 
 // GET /get_species_functional_types
-router.get('/get_species_functional_types', async (req, res) => {
+router.all('/get_species_functional_types', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT DISTINCT Functional_Type FROM usanpn2.Species WHERE Functional_Type IS NOT NULL ORDER BY Functional_Type ASC`
@@ -282,7 +282,7 @@ router.get('/get_species_functional_types', async (req, res) => {
 });
 
 // GET /get_species_filter
-router.get('/get_species_filter', async (req, res) => {
+router.all('/get_species_filter', async (req, res) => {
   try {
     const p = req.query;
     const conditions = ['s.Active = 1'];
@@ -369,7 +369,7 @@ router.get('/get_species_filter', async (req, res) => {
 });
 
 // GET /get_species_by_id
-router.get('/get_species_by_id', async (req, res) => {
+router.all('/get_species_by_id', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'species_id')) {
       return res.status(400).json({ error: 'species_id is required' });
@@ -402,7 +402,7 @@ router.get('/get_species_by_id', async (req, res) => {
 });
 
 // GET /get_species_by_itis
-router.get('/get_species_by_itis', async (req, res) => {
+router.all('/get_species_by_itis', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'itis_sn')) {
       return res.status(400).json({ error: 'itis_sn is required' });
@@ -435,7 +435,7 @@ router.get('/get_species_by_itis', async (req, res) => {
 });
 
 // GET /get_species_by_scientific_name
-router.get('/get_species_by_scientific_name', async (req, res) => {
+router.all('/get_species_by_scientific_name', async (req, res) => {
   try {
     const p = req.query;
 
@@ -469,7 +469,7 @@ router.get('/get_species_by_scientific_name', async (req, res) => {
 });
 
 // GET /get_species_by_common_name
-router.get('/get_species_by_common_name', async (req, res) => {
+router.all('/get_species_by_common_name', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'common_name')) {
       return res.status(400).json({ error: 'common_name is required' });

@@ -6,7 +6,7 @@ const arrayWrap = require('../utils/arrayWrap');
 const resolveBooleanText = require('../utils/resolveBooleanText');
 
 // GET /get_phenophases
-router.get('/get_phenophases', async (req, res) => {
+router.all('/get_phenophases', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Phenophase_ID, Phenophase_Name, Short_Name, Pheno_Class_ID, Color
@@ -27,7 +27,7 @@ router.get('/get_phenophases', async (req, res) => {
 });
 
 // GET /get_phenophase_details
-router.get('/get_phenophase_details', async (req, res) => {
+router.all('/get_phenophase_details', async (req, res) => {
   const p = req.query;
   let ids = [];
 
@@ -88,7 +88,7 @@ router.get('/get_phenophase_details', async (req, res) => {
 });
 
 // GET /get_phenophase_definition_details
-router.get('/get_phenophase_definition_details', async (req, res) => {
+router.all('/get_phenophase_definition_details', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT *
@@ -104,7 +104,7 @@ router.get('/get_phenophase_definition_details', async (req, res) => {
 });
 
 // GET /get_phenophases_for_species
-router.get('/get_phenophases_for_species', async (req, res) => {
+router.all('/get_phenophases_for_species', async (req, res) => {
   try {
     const p = req.query;
 
@@ -215,7 +215,7 @@ router.get('/get_phenophases_for_species', async (req, res) => {
 });
 
 // GET /get_phenophases_for_taxon
-router.get('/get_phenophases_for_taxon', async (req, res) => {
+router.all('/get_phenophases_for_taxon', async (req, res) => {
   try {
     const p = req.query;
 
@@ -300,7 +300,7 @@ async function fetchAbundanceCategory(categoryId) {
 }
 
 // GET /get_abundance_category
-router.get('/get_abundance_category', async (req, res) => {
+router.all('/get_abundance_category', async (req, res) => {
   try {
     const p = req.query;
 
@@ -317,7 +317,7 @@ router.get('/get_abundance_category', async (req, res) => {
 });
 
 // GET /get_abundance_categories
-router.get('/get_abundance_categories', async (req, res) => {
+router.all('/get_abundance_categories', async (req, res) => {
   try {
     const [catRows] = await npnPool.query(
       `SELECT Abundance_Category_ID FROM usanpn2.Abundance_Category ORDER BY Abundance_Category_ID ASC`
@@ -335,7 +335,7 @@ router.get('/get_abundance_categories', async (req, res) => {
 });
 
 // GET /get_pheno_classes
-router.get('/get_pheno_classes', async (req, res) => {
+router.all('/get_pheno_classes', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Pheno_Class_ID, Name, Description, Sequence FROM usanpn2.Pheno_Class ORDER BY Pheno_Class_ID ASC`
@@ -353,7 +353,7 @@ router.get('/get_pheno_classes', async (req, res) => {
 });
 
 // GET /get_pheno_class
-router.get('/get_pheno_class', async (req, res) => {
+router.all('/get_pheno_class', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'pheno_class_id')) {
       return res.json({});
@@ -398,7 +398,7 @@ router.get('/get_pheno_class', async (req, res) => {
 });
 
 // GET /get_phenophases_update_date
-router.get('/get_phenophases_update_date', async (req, res) => {
+router.all('/get_phenophases_update_date', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Update_Date FROM usanpn2.Update_Date WHERE Table_Name = 'phenophase' LIMIT 1`
@@ -412,7 +412,7 @@ router.get('/get_phenophases_update_date', async (req, res) => {
 });
 
 // GET /get_any_update_date
-router.get('/get_any_update_date', async (req, res) => {
+router.all('/get_any_update_date', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT MAX(Update_Date) AS latest_update FROM usanpn2.Update_Date`
@@ -425,7 +425,7 @@ router.get('/get_any_update_date', async (req, res) => {
 });
 
 // GET /get_species_protocol_details
-router.get('/get_species_protocol_details', async (req, res) => {
+router.all('/get_species_protocol_details', async (req, res) => {
   try {
     const p = req.query;
     const conditions = [];
@@ -473,7 +473,7 @@ router.get('/get_species_protocol_details', async (req, res) => {
 });
 
 // GET /get_protocol_details
-router.get('/get_protocol_details', async (req, res) => {
+router.all('/get_protocol_details', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT Protocol_ID, Protocol_Name, Primary_Name, Secondary_Name, Phenophases, Comment
@@ -495,7 +495,7 @@ router.get('/get_protocol_details', async (req, res) => {
 });
 
 // GET /get_secondary_phenophase_details
-router.get('/get_secondary_phenophase_details', async (req, res) => {
+router.all('/get_secondary_phenophase_details', async (req, res) => {
   const p = req.query;
   const conditions = [];
   const params = [];
@@ -569,7 +569,7 @@ router.get('/get_secondary_phenophase_details', async (req, res) => {
 });
 
 // GET /get_abundance_details
-router.get('/get_abundance_details', async (req, res) => {
+router.all('/get_abundance_details', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT * FROM usanpn2.vw_Abundance_Details ORDER BY Phenophase_ID ASC`

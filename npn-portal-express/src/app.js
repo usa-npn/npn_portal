@@ -7,6 +7,16 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ── CakePHP compatibility: merge POST body params into req.query ─────────────
+// The old CakePHP API accepted both GET and POST on all endpoints.
+// Clients like pop-service POST form data, so make it available via req.query.
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+    req.query = { ...req.query, ...req.body };
+  }
+  next();
+});
+
 // ── Route modules ─────────────────────────────────────────────────────────────
 const metadataRoutes       = require('./routes/metadata');
 const submissionsRoutes    = require('./routes/submissions');

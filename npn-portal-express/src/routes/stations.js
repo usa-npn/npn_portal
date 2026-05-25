@@ -9,7 +9,7 @@ const arrayWrap = require('../utils/arrayWrap');
 const resolveBooleanText = require('../utils/resolveBooleanText');
 
 // GET /get_all_stations
-router.get('/get_all_stations', async (req, res) => {
+router.all('/get_all_stations', async (req, res) => {
   try {
     const p = req.query;
     const conditions = ['1=1'];
@@ -83,7 +83,7 @@ router.get('/get_all_stations', async (req, res) => {
 });
 
 // GET /get_stations_for_user
-router.get('/get_stations_for_user', async (req, res) => {
+router.all('/get_stations_for_user', async (req, res) => {
   try {
     if (isNotSecure(req)) {
       return res.status(403).json({ error: 'HTTPS required' });
@@ -109,7 +109,7 @@ router.get('/get_stations_for_user', async (req, res) => {
 });
 
 // GET /get_stations_for_boundary
-router.get('/get_stations_for_boundary', async (req, res) => {
+router.all('/get_stations_for_boundary', async (req, res) => {
   try {
     const p = req.query;
     const conditions = [];
@@ -161,7 +161,7 @@ router.get('/get_stations_for_boundary', async (req, res) => {
 });
 
 // GET /get_stations_by_location
-router.get('/get_stations_by_location', async (req, res) => {
+router.all('/get_stations_by_location', async (req, res) => {
   try {
     const p = req.query;
 
@@ -222,7 +222,7 @@ router.get('/get_stations_by_location', async (req, res) => {
 });
 
 // GET /get_stations_by_id
-router.get('/get_stations_by_id', async (req, res) => {
+router.all('/get_stations_by_id', async (req, res) => {
   try {
     const p = req.query;
 
@@ -253,7 +253,7 @@ router.get('/get_stations_by_id', async (req, res) => {
 });
 
 // GET /get_stations_with_species
-router.get('/get_stations_with_species', async (req, res) => {
+router.all('/get_stations_with_species', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'species_id')) {
       return res.status(400).json({ error: 'species_id is required' });
@@ -286,7 +286,7 @@ router.get('/get_stations_with_species', async (req, res) => {
 });
 
 // GET /get_station_count_by_state
-router.get('/get_station_count_by_state', async (req, res) => {
+router.all('/get_station_count_by_state', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT State, COUNT(*) AS cnt FROM usanpn2.Station WHERE State IS NOT NULL GROUP BY State ORDER BY State ASC`
@@ -299,7 +299,7 @@ router.get('/get_station_count_by_state', async (req, res) => {
 });
 
 // GET /get_stations_for_network
-router.get('/get_stations_for_network', async (req, res) => {
+router.all('/get_stations_for_network', async (req, res) => {
   try {
     if (!checkProperty(req.query, 'network_id')) {
       return res.status(400).json({ error: 'network_id is required' });
@@ -336,7 +336,7 @@ router.get('/get_stations_for_network', async (req, res) => {
 });
 
 // GET /get_states
-router.get('/get_states', async (req, res) => {
+router.all('/get_states', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
       `SELECT State_ID, State_Code, State_Name FROM usanpn2.State_List ORDER BY State_Name ASC`
@@ -353,7 +353,7 @@ router.get('/get_states', async (req, res) => {
 });
 
 // GET /get_station_details
-router.get('/get_station_details', async (req, res) => {
+router.all('/get_station_details', async (req, res) => {
   const p = req.query;
   let ids = [];
 
@@ -406,7 +406,7 @@ router.get('/get_station_details', async (req, res) => {
 });
 
 // GET /get_daymet_data
-router.get('/get_daymet_data', async (req, res) => {
+router.all('/get_daymet_data', async (req, res) => {
   try {
     const p = req.query;
 
@@ -444,7 +444,7 @@ router.get('/get_daymet_data', async (req, res) => {
 });
 
 // GET /get_time_series
-router.get('/get_time_series', async (req, res) => {
+router.all('/get_time_series', async (req, res) => {
   try {
     const p = req.query;
 
