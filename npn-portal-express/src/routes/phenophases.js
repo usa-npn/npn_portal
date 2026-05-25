@@ -65,10 +65,12 @@ router.all('/get_phenophase_details', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
+  let ended = false;
 
   const q = rawConn.query(sql, params);
 
   q.on('result', (row) => {
+    if (ended) return;
     const chunk = (first ? '' : ',') + JSON.stringify(
       Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase(), v]))
     );
@@ -77,12 +79,14 @@ router.all('/get_phenophase_details', async (req, res) => {
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { released = true; rawConn.destroy(); });
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_phenophase_details stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
@@ -511,27 +515,11 @@ router.all('/get_secondary_phenophase_details', async (req, res) => {
     params.push(p.phenophase_id);
   }
 
-  let sql = `
-    SELECT
-      sspi.Species_ID,
-      sspi.Phenophase_ID,
-      sspi.Abundance_Category,
-      sspi.Extent_Min,
-      sspi.Extent_Max,
-      sspi.Notes,
-      pp.Phenophase_Name,
-      pp.Short_Name,
-      s.Common_Name AS species_common_name
-    FROM usanpn2.Species_Specific_Phenophase_Information sspi
-    LEFT JOIN usanpn2.Phenophase pp ON pp.Phenophase_ID = sspi.Phenophase_ID
-    LEFT JOIN usanpn2.Species s ON s.Species_ID = sspi.Species_ID
-  `;
+  let sql = `SELECT * FROM usanpn2.Species_Specific_Phenophase_Information sspi`;
 
   if (conditions.length > 0) {
     sql += ' WHERE ' + conditions.join(' AND ');
   }
-
-  sql += ' ORDER BY sspi.Species_ID ASC, sspi.Phenophase_ID ASC';
 
   let conn;
   try {
@@ -548,22 +536,26 @@ router.all('/get_secondary_phenophase_details', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
+  let ended = false;
 
   const q = rawConn.query(sql, params);
 
   q.on('result', (row) => {
+    if (ended) return;
     const chunk = (first ? '' : ',') + JSON.stringify(row);
     first = false;
     if (!res.write(chunk)) rawConn.pause();
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { released = true; rawConn.destroy(); });
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_secondary_phenophase_details stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
