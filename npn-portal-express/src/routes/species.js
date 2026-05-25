@@ -287,79 +287,130 @@ router.all('/get_species_filter', async (req, res) => {
     const p = req.query;
     const conditions = ['s.Active = 1'];
     const params = [];
+    const extraJoins = [];
 
-    let sql = `
-      SELECT DISTINCT
-        s.Species_ID,
-        s.Common_Name,
-        s.Genus,
-        s.Species,
-        s.Kingdom,
-        s.Functional_Type
-      FROM usanpn2.Species s
-    `;
+    let taxon = 'species';
+    if (checkProperty(p, 'taxon')) {
+      const t = String(p.taxon).toLowerCase();
+      if (['family', 'order', 'class', 'genus'].includes(t)) taxon = t;
+    }
 
-    const joins = [];
+    if (checkProperty(p, 'group_ids')) {
+      const groupIds = arrayWrap(p.group_ids).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      if (groupIds.length > 0) {
+        extraJoins.push(
+          `LEFT JOIN (
+            SELECT DISTINCT sst.Species_ID
+            FROM usanpn2.Species_Species_Type sst
+            LEFT JOIN usanpn2.Species_Type st ON st.Species_Type_ID = sst.Species_Type_ID
+            WHERE st.Species_Type_ID IN (?)
+          ) st ON st.Species_ID = s.Species_ID`
+        );
+        params.push(groupIds);
+        conditions.push('st.Species_ID IS NOT NULL');
+      }
+    }
 
     if (checkProperty(p, 'network_id')) {
-      joins.push(
-        `LEFT JOIN usanpn2.Cached_Summarized_Data csd_n ON csd_n.Species_ID = s.Species_ID`,
-        `LEFT JOIN usanpn2.Network_Station ns_n ON ns_n.Station_ID = csd_n.Station_ID`
-      );
       const networkIds = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      conditions.push('ns_n.Network_ID IN (?)');
-      params.push(networkIds);
+      if (networkIds.length > 0) {
+        const netClauses = [];
+        for (const nid of networkIds) {
+          netClauses.push(`csd.Network_IDs LIKE ?`, `csd.Network_IDs = ?`, `csd.Network_IDs LIKE ?`, `csd.Network_IDs LIKE ?`);
+          params.push(`%,${nid},%`, String(nid), `${nid},%`, `%,${nid}`);
+        }
+        conditions.push(`(${netClauses.join(' OR ')})`);
+      }
     }
 
     if (checkProperty(p, 'person_id')) {
-      joins.push(
-        `LEFT JOIN usanpn2.Cached_Summarized_Data csd_p ON csd_p.Species_ID = s.Species_ID`,
-        `LEFT JOIN usanpn2.Station st_p ON st_p.Station_ID = csd_p.Station_ID`
-      );
-      conditions.push('st_p.Observer_ID = ?');
-      params.push(p.person_id);
+      const personIds = arrayWrap(p.person_id);
+      const personClauses = personIds.map(() => 'co.ObservedBy_Person_ID = ?');
+      conditions.push(`(${personClauses.join(' OR ')})`);
+      params.push(...personIds);
+    }
+
+    if (checkProperty(p, 'start_date') && checkProperty(p, 'end_date')) {
+      conditions.push('co.Observation_Date BETWEEN ? AND ?');
+      params.push(p.start_date, p.end_date);
     }
 
     if (checkProperty(p, 'station_ids')) {
       const stationIds = arrayWrap(p.station_ids).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      if (!joins.some(j => j.includes('csd_s'))) {
-        joins.push(`LEFT JOIN usanpn2.Cached_Summarized_Data csd_s ON csd_s.Species_ID = s.Species_ID`);
+      if (stationIds.length > 0) {
+        conditions.push('csd.Site_ID IN (?)');
+        params.push(stationIds);
       }
-      conditions.push('csd_s.Station_ID IN (?)');
-      params.push(stationIds);
     }
 
-    if (checkProperty(p, 'taxon')) {
-      conditions.push('(s.Class_ID = ? OR s.Order_ID = ? OR s.Family_ID = ? OR s.Genus_ID = ?)');
-      const taxonId = parseInt(p.taxon, 10);
-      params.push(taxonId, taxonId, taxonId, taxonId);
-    }
+    const groupByCol = { family: 'csd.Family_ID', order: 'csd.Order_ID', class: 'csd.Class_ID', genus: 'csd.Genus_ID', species: 'csd.Species_ID' }[taxon];
+    const orderByCol = { family: 'csd.Family_Common_Name', order: 'csd.Order_Common_Name', class: 'csd.Class_Common_Name', genus: 'csd.Genus_Common_Name', species: 'Common_Name' }[taxon];
 
-    if (checkProperty(p, 'start_date') && checkProperty(p, 'end_date')) {
-      if (!joins.some(j => j.includes('Cached_Observation'))) {
-        joins.push(`LEFT JOIN usanpn2.Cached_Observation co_f ON co_f.Species_ID = s.Species_ID`);
-      }
-      conditions.push('co_f.Observation_Date BETWEEN ? AND ?');
-      params.push(p.start_date, p.end_date);
-    }
-
-    if (joins.length > 0) {
-      sql += ' ' + joins.join(' ');
-    }
-
-    sql += ' WHERE ' + conditions.join(' AND ');
-    sql += ' ORDER BY s.Common_Name ASC';
+    const sql = `
+      SELECT
+        COUNT(co.Observation_ID) AS c, csd.Kingdom, csd.Site_ID, csd.Individual_ID, csd.Phenophase_ID,
+        csd.Family_ID, csd.Family_Name, csd.Family_Common_Name,
+        csd.Order_ID, csd.Order_Name, csd.Order_Common_Name,
+        csd.Class_ID, csd.Class_Name, csd.Class_Common_Name,
+        csd.Species_ID, csd.Common_Name, csd.Genus, csd.Genus_Common_Name, csd.Species,
+        s.ITIS_Taxonomic_SN, s.Functional_Type, csd.Genus_ID
+      FROM usanpn2.Cached_Summarized_Data csd
+      LEFT JOIN usanpn2.Cached_Observation co ON co.Series_ID = csd.Series_ID
+      LEFT JOIN usanpn2.Species s ON csd.Species_ID = s.Species_ID
+      ${extraJoins.join(' ')}
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY ${groupByCol}
+      ORDER BY ${orderByCol}
+    `;
 
     const [rows] = await npnPool.query(sql, params);
 
-    const result = rows.map(r => ({
-      species_id: r.Species_ID,
-      common_name: r.Common_Name,
-      genus: r.Genus,
-      species: r.Species,
-      kingdom: r.Kingdom,
-      functional_type: r.Functional_Type,
-    }));
+    const result = [];
+    for (const r of rows) {
+      const obj = { kingdom: r.Kingdom, number_observations: r.c };
+
+      if (taxon === 'family') {
+        if (r.Family_ID == null) continue;
+        obj.family_id = r.Family_ID;
+        obj.family_name = r.Family_Name;
+        obj.family_common_name = r.Family_Common_Name;
+      } else if (taxon === 'class') {
+        if (r.Class_ID == null) continue;
+        obj.class_id = r.Class_ID;
+        obj.class_name = r.Class_Name;
+        obj.class_common_name = r.Class_Common_Name;
+      } else if (taxon === 'order') {
+        if (r.Order_ID == null) continue;
+        obj.order_id = r.Order_ID;
+        obj.order_name = r.Order_Name;
+        obj.order_common_name = r.Order_Common_Name;
+      } else if (taxon === 'genus') {
+        if (r.Genus_ID == null) continue;
+        obj.genus_id = r.Genus_ID;
+        obj.genus_name = r.Genus;
+        obj.genus_common_name = r.Genus_Common_Name;
+      } else {
+        obj.common_name = r.Common_Name;
+        obj.genus = r.Genus;
+        obj.genus_common_name = r.Genus_Common_Name;
+        obj.genus_id = r.Genus_ID;
+        obj.species = r.Species;
+        obj.species_id = r.Species_ID;
+        obj.family_id = r.Family_ID;
+        obj.family_name = r.Family_Name;
+        obj.family_common_name = r.Family_Common_Name;
+        obj.class_id = r.Class_ID;
+        obj.class_name = r.Class_Name;
+        obj.class_common_name = r.Class_Common_Name;
+        obj.order_id = r.Order_ID;
+        obj.order_name = r.Order_Name;
+        obj.order_common_name = r.Order_Common_Name;
+        obj.itis_taxonomic_sn = r.ITIS_Taxonomic_SN;
+        obj.functional_type = r.Functional_Type;
+      }
+
+      result.push(obj);
+    }
 
     res.json(result);
   } catch (err) {
