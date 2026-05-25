@@ -368,7 +368,7 @@ router.all('/get_station_details', async (req, res) => {
   ids = ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
   if (ids.length === 0) return res.status(400).json({ error: 'No valid IDs provided' });
 
-  const sql = `SELECT * FROM usanpn2.vw_Station_Details WHERE Station_ID IN (?)`;
+  const sql = `SELECT * FROM usanpn2.vw_Station_Details WHERE Site_ID IN (?)`;
 
   let conn;
   try {
@@ -385,22 +385,26 @@ router.all('/get_station_details', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
+  let ended = false;
 
   const q = rawConn.query(sql, [ids]);
 
   q.on('result', (row) => {
+    if (ended) return;
     const chunk = (first ? '' : ',') + JSON.stringify(row);
     first = false;
     if (!res.write(chunk)) rawConn.pause();
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { released = true; rawConn.destroy(); });
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_station_details stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });

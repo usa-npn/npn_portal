@@ -658,10 +658,12 @@ router.all('/get_observations', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
+  let ended = false;
 
   const q = rawConn.query(sql, params);
 
   q.on('result', (row) => {
+    if (ended) return;
     const base = {
       ...row,
       update_datetime: row.update_datetime !== null ? row.update_datetime : -9999,
@@ -684,14 +686,16 @@ router.all('/get_observations', async (req, res) => {
 
   res.on('drain', () => rawConn.resume());
 
-  req.on('close', () => { released = true; rawConn.destroy(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
 
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
 
   q.on('error', (err) => {
     console.error('get_observations stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
@@ -839,10 +843,12 @@ router.all('/get_summarized_data', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
+  let ended = false;
 
   const q = rawConn.query(sql, params);
 
   q.on('result', (row) => {
+    if (ended) return;
     const chunk = (first ? '' : ',') + JSON.stringify({
       ...row,
       first_yes_julian_date: parseInt(row.first_yes_julian_date, 10),
@@ -853,12 +859,14 @@ router.all('/get_summarized_data', async (req, res) => {
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { released = true; rawConn.destroy(); });
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_summarized_data stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
@@ -1043,9 +1051,12 @@ router.all('/get_site_level_data', async (req, res) => {
     }
   });
 
-  req.on('close', () => { released = true; rawConn.destroy(); });
+  let ended = false;
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
 
   q.on('end', () => {
+    if (ended) { release(); return; }
+    ended = true;
     const result = [];
     for (const site of siteMap.values()) {
       const nFirst = site.firstJulians.length;
@@ -1124,8 +1135,10 @@ router.all('/get_site_level_data', async (req, res) => {
 
   q.on('error', (err) => {
     console.error('get_site_level_data stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
@@ -1448,13 +1461,16 @@ router.all('/get_magnitude_data', async (req, res) => {
     if (!res.write(chunk)) rawConn.pause();
   });
 
+  let ended = false;
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { released = true; rawConn.destroy(); });
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_magnitude_data stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
@@ -1502,10 +1518,12 @@ router.all('/get_observation_group_details', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
+  let ended = false;
 
   const q = rawConn.query(sql, params);
 
   q.on('result', (row) => {
+    if (ended) return;
     const chunk = (first ? '' : ',') + JSON.stringify(
       Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase(), v]))
     );
@@ -1514,12 +1532,14 @@ router.all('/get_observation_group_details', async (req, res) => {
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { released = true; rawConn.destroy(); });
-  q.on('end', () => { res.write(']'); res.end(); release(); });
+  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_observation_group_details stream error:', err.message);
+    if (ended) { release(); return; }
+    ended = true;
     if (!res.headersSent) res.status(500).json({ error: err.message });
-    else res.end(']');
+    else { try { res.end(']'); } catch (_) {} }
     release();
   });
 });
