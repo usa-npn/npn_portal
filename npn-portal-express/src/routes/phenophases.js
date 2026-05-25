@@ -564,7 +564,7 @@ router.all('/get_secondary_phenophase_details', async (req, res) => {
 router.all('/get_abundance_details', async (req, res) => {
   try {
     const [rows] = await npnPool.query(
-      `SELECT * FROM usanpn2.vw_Abundance_Details ORDER BY Phenophase_ID ASC`
+      `SELECT * FROM usanpn2.vw_Abundance_Details`
     );
     res.json(rows);
   } catch (err) {
