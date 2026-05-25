@@ -1,0 +1,6315 @@
+﻿USA-NPN Data Web Service API v 1.2.1    10/25/2016
+
+
+Table of Contents
+
+
+Introduction
+GetObservations Port
+getAllObservationsForSpecies
+getObservationDates
+getObservationComment
+getDatasetDetails
+getObservationGroupDetails
+getObservations
+getSummarizedData
+getSiteLevelData
+getMagnitudeData
+getObservationsCount
+GetPerson Port
+getPersonIDFromDrupalID
+getObserverDetails
+getUserUpdate
+GetIndividuals Port
+getIndividualsOfSpeciesAtStations
+getIndividualsAtStations
+getIndividualById
+getPlantDetails
+getShadeStatuses
+GetMetadata Port
+getMetadataFields
+GetSubmission Port
+getLastSubmissionForPerson
+GetSpecies Port
+getSpecies
+getSpeciesById
+getSpeciesByState
+getSpeciesUpdateDate
+getPlantTypes
+getAnimalTypes
+getSpeciesFunctionalTypes
+getSpeciesFilter
+getSpeciesByItis
+getSpeciesByScientificName
+getSpeciesByCommonName
+GetStations Port
+getAllStations
+getStationsForUser
+getStationsWithSpecies
+getStationCountByState
+getStationsById
+getStates
+getStationsForNetwork
+GetNetworks Port
+getPartnerNetworks
+getNetworkTree
+getNetworksForUser
+getUserNetworkStatus
+GetPhenophases Port
+getPhenophases
+getPhenophaseDetails
+getPhenophaseDefinitionDetails
+getPhenophasesForSpecies
+getPhenophasesUpdateDate
+getAbundanceCategory
+getAbundanceCategories
+getSpeciesProtocolDetails
+getProtocolDetails
+getSecondaryPhenophaseDetails
+CreateUser Port
+CreateUser
+CreateStation Port
+createStation
+addUserPublicStation
+CreateIndividual Port
+createIndividual
+EnterObservation Port
+enterObservation
+enterObservationSet
+enterObservationDetails
+getObservationDetails
+Appendix A: Phenophases
+Appendix B: The USA-NPN OAuth Authentication Provider
+
+
+Introduction
+This document describes how to use the USA-NPN’s web service for contributing and extracting data from the NPDb. This includes a series of functions which create the constructs necessary to enter observations – users, stations, and individuals, as well as a suite of functions to retrieve data using various structures and filters.
+This service relies on the SOAP protocol, and supports both SOAP 1.1 and 1.2. The service’s WSDL file is available at the following URL:
+services.usanpn.org/npn_portal/soap/wsdl/wsdl
+Alternatively, the same functions found in the WSDL can be used via a REST-ful URL. Typically, for the REST version of the functions, they can be found in a path named after the function’s endpoint address, and the GET parameters are named after the attributes defined for the function in the WSDL’s schema. So for example, the function getObservationComment has a corresponding WSDL endpoint of npn_portal/soap/observations/service and contains a single input parameter, an integer called observation_id. Hence the corresponding REST call would be:
+services.usanpn.org/npn_portal/observations/getObservationComment.xml?observation_id=X
+If you want to receive JSON rather than XML REST-fully simply change the extension on the URL you’re requesting, e.g.:
+services.usanpn.org/npn_portal/observations/getObservationComment.json?observation_id=X
+
+
+The functions available in the WSDL are documented below. Each entry gives an example of how to call the function via REST, and the data returned restfully can generally be derived from the return SOAP message. 
+
+
+GetObservations Port
+
+
+getAllObservationsForSpecies
+This function will return all the positive and negative observation data points, grouped by species and station, within a specified time frame. It takes the start and end date as input parameters and optionally allows data to be further filtered by species or by network affiliation.. It returns a fairly complex data structure which includes: an array containing all the phenophase data and a second 3-d array containing all the observation dat. This 3-D array is structured as follows: the first layer is a list of all stations and their associated details. The second layer is a list of all species ids present at each station. The final layer is a list of all phenophase ids associated with each species, and the count of positive and negative observations.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	network_id
+	int
+	N
+	>=0
+	List of network ids by which to filter the data
+	species_id
+	int
+	N
+	>= 0
+	List of all the species_ids for which to filter the data.
+	start_date
+	string
+	Y
+	1
+	Sets the date range on which to limit the observations returned.
+	end_date
+	string
+	Y
+	1
+	...
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station_list
+
+
+	array
+	n/a
+	1
+	Top-level array containing elements listing each of the stations at which the observations occur.
+	station
+	complexType
+
+
+	station_list
+	>= 0
+	Logical grouping of station properties. 
+	station_id
+	int
+	station
+	1
+	Station’s unique identifier. Good for use in other service calls and for referencing in observation_list.
+	station_name
+	string
+	station
+	1
+	User provided name for station.
+	longitude
+	float
+	station
+	1
+	Geographical longitude of the station’s location. 
+	latitude
+	float
+	station
+	1
+	Geographical latitude of the station’s location. 
+	networks
+	array
+	station
+	0-1
+	Arrray containing the unique identifiers of the networks to which the station is associated. This element is only present when the network_id input parameter is specified.
+	species
+	array
+	station
+	1
+	2-d array containing a list of species ids and phenophase ids
+	y
+	int
+	species
+	0-1
+	Represents the number of yes observations for the species-phenophase within the specified time frame. This value is not present if there are no such data points.
+	n
+	int
+	species
+	0-1
+	Represents the number of no observations for the species-phenophase within the specified time frame. This value is not present if there are no such data points.
+	phenophase_list
+
+
+	array
+	n/a
+	1
+	Top-level array containing elements listing each of the phenophases used amongst the provided observations.
+	phenophase
+	complexType
+	phenophase_list
+	>= 0
+	Logical grouping of phenophase properties.
+	phenophase_id
+	int
+	phenophase
+	1
+	Phenophase’s unique identifier. Good for use in other service calls and for referencing in observation_list.
+	phenophase_name
+
+
+	string
+	phenophase
+	1
+	Name of phenophase.
+	
+
+
+
+Example REST Call:
+
+
+services.usanpn.org/npn_portal/observations/getAllObservationsForSpecies.json?species_id[0]=52&species_id[1]=53&start_date=2008-01-01&end_date=2011-12-31
+
+
+getObservationDates
+
+
+This function is used to return data regarding the periods of activity for a particular species and phenophase by year. It allows the data to be filtered by a number of criteria including: species, network, phenophase and station. At least one species and year must be specified. The data returned is structured as a 4-d array in the following structure: the first layer is an array of objects presenting information about the species. The second layer is an array of objects representing the species’ phenophases and information about those phenophases. The third layer is an array of years of activity as specified by the user’s input parameters. The final level is a series of arrays containing information about the days of year of activity for each phenophase. Note that because this is amalgamating data from multiple individuals, locations, it’s possible for a day of year value to appear in both the ‘yes’ and the ‘no’ array.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	species_id
+	int
+	Y
+	>=1
+	The species_ids for which to find observations.
+	year
+	int
+	Y
+	>=1
+	The years for which to retrieve data.
+	network_id
+	int
+	N
+	>=0
+	The network ids by which to filter the data.
+	phenophase_id
+	int
+	N
+	>=0
+	The phenophase ids by which to filter the data.
+	station_id
+	int
+	N
+	>=0
+	The station ids by which to filter the data.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species
+
+
+
+
+	array
+	n/a
+	1
+	Top level array containing an entry for every requested species.
+	species_id
+
+
+	int
+
+
+	species
+	1
+	Unique identifier of the species
+	common_name
+
+
+	string
+	species
+	1
+	Common name of the species
+	phenophases
+
+
+	array
+	species
+	1
+	Second level array containing all of the species’ phenophases, or only the ones which were requested, if the phenophase_id input parameter was used in the request.
+	phenophase_id
+
+
+	int
+	phenophase
+	 1
+	Unique identifier of the phenophase
+	phenophase_name
+
+
+	string
+	phenophase
+	1
+	Name of the phenophase
+	seq_num
+
+
+	int
+	phenophase
+	1
+	Represents the relative order in which it’s preferred the phenophases be displayed
+	years
+
+
+	array
+	phenophase
+	1
+	Third level array containing an entry for each of the requested years.
+	positive
+	array
+	year
+	1
+	Array containing all the day of year values for which there is a positive observation in the data as represented by the requested parameters.
+	negative
+
+
+	array
+	year
+	1
+	Array containing all the day of year values for which there is a negative observation in the data as represented by the requested parameters.
+	
+
+
+
+Example REST Request:
+services.usanpn.org/npn_portal/observations/getObservationDates.json?year=2009&species_id=3&station_id=2
+
+
+getObservationComment
+This function will return the comment associated with a particular observation. For input, it takes the associated observation’s ID, and for output, the comment. Comments are optional values for observations, so often times the result will be an empty string. If the observation id specified doesn’t exist, the service returns null.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	observation_id
+	int
+	Y
+	1
+	The ID of the observation for which to retrieve the comment value.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	observation_comment
+
+
+
+
+
+
+	string
+	n/a
+	1
+	User provided comment for the observation. 
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:getObservationComment>
+                    <ns1:observation_id>1938</ns1:observation_id>
+            </ns1:getObservationComment>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:getObservationCommentResponse>
+                    <ns1:observation_comment>some lower branches are bare</ns1:observation_comment>
+            </ns1:getObservationCommentResponse>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+Example REST Request:
+services.usanpn.org/npn_portal/observations/getObservationComment.xml?observation_id=1938
+
+
+getDatasetDetails
+This function returns the name and ID of all data sources used in the USA-NPN database. Data sources are used to distinguish specialized sources for data, outside of the typical USA-NPN infrastructure. This function takes no input parameters. 
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	dataset_id
+
+
+
+
+
+
+
+
+	int
+	n/a
+	1
+	Primary ID of the dataset.
+	dataset_name
+
+
+	string
+	n/a
+	1
+	Human readable name of the dataset.
+	
+
+
+
+
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+<env:Body>
+<ns1:getDatasetDetails/>
+</env:Body>
+</env:Envelope>
+
+
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getDataSourceDetailsResponse>
+                    <ns1:dataset ns1:dataset_id="1" ns1:dataset_name="Legacy Lilac Data"/>
+                    <ns1:dataset ns1:data_source_id="2" ns1:dataset_name="Test App"/>
+                    ...
+            </ns1:getDatasetDetailsResponse>
+    </env:Body>
+</env:Envelope>
+Example REST Request:
+services.usanpn.org/npn_portal/observations/getDatasetDetails.json
+
+
+getObservationGroupDetails
+This function returns additional information about “observation groups”, or entities that describe certain attributes about an observer’s session at a given site on a given date, e.g. time spent observing, snow cover. Values are always user contributed data, and as all fields provided by the user are optional values, often times an entity has no meaningful data associated with it. This function takes a series of observation group ids as input. If no such ids are provided, then information about all observation groups is returned.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	observation_group_id
+
+
+
+
+
+
+
+
+	int
+	n/a
+	>=0
+	Primary IDs of the observation groups for which to return information. Note that this parameter is supported for backwards compatibility as the “ids” input parameter functions more easily.
+	ids
+
+
+	string
+	n/a
+	0 - 1
+	Comma-seperated list of observation group ids for which to return infromation.
+	
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	observation_group_id
+
+
+
+
+
+
+
+
+	int
+	n/a
+	1
+	Primary ID of the observation group.
+	travel_time
+
+
+	string
+	n/a
+	1
+	Number of hours or minutes the user spent traveling to the site to do observation.
+	 total_observation_time
+	string
+	n/a
+	1
+	Number of hours or minutes the user spent making observations at the site.
+	animal_search_time
+	string
+	n/a
+	1
+	Number of hours or minutes the user spent searching the site for animals to observe
+	animal_search_method
+	string
+	n/a
+	1
+	The method the user used to search for animals.
+	snow_on_ground
+	int
+	n/a
+	1
+	Indicates if there was snow on the ground at the time the user was observing.
+	percent_snow_cover
+
+
+	int
+	n/a
+	1
+	User-estimated percentage of the ground covered by snow
+	snow_in_tree_canopy
+
+
+	int
+	n/a
+	1
+	Indicates if there was snow present in the tree canopy at the time the user was observing.
+	
+
+
+
+Example REST Request:
+services.usanpn.org/npn_portal/observations/getObservationGroupDetails.json?ids=500,501,502,503,504,505,506,507,1100,13000
+
+
+getObservations
+This function will return raw observation data based on the search parameters, providing observation data, including the location, individual/species observed, the phenophase observed, and the actual observational data. This function allows for a wide array of input parameters with which to limit the results, all of which are optional. Among them are: a date range; if this parameter is desired, start_date and end_date must be provided in tandem (individually they are ignored), kingdom, person_id, network name, state abbreviation, an array of species_ids, a phenophase category, a phenophase id, and/or an array of station ids. This function should be used with caution. If too many parameters are passed in, mutually exclusive results can be created, providing an empty set of data. If too few parameters are provided the results may be overwhelming. The data returned in each record includes: the record id, the station id, the observation date, the individual id, it’s scientific and common names, its kingdom, the phenophase category and phenophase name the observation belongs to.
+It’s also important to note that this function can return massive amounts of data, including the ability to return all the raw data in the database. If the requesting client is not able to handle large amounts of data, that client may crash. This function is configured to stream data when possible, so it’s recommended to stream results into an output file for later use.
+This function also allows additional fields to be specified, which will append to each record in the results, the specified additional fields. Additional field possible values specified in table below.
+Note that this function requires an input parameter, request_src, which is a self-identifying string indicating the source of the request. Failing to provide this parameter will return an empty response.
+Any data in the response that is the value -9999 or “-9999” are to be considered ‘null’ or ‘empty’ values and indicate that there is no data for that value in that row.
+Data is cached daily for output via this function. Hence data added to the system within the last 24 hours before a request may not show up right away.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	start_date
+	string
+	N
+	0 - 1
+	Sets a limit on the dates at which data should be returned for the species. Should be in YYYY-MM-DD format. Must be used in conjunction with the end_date parameter.
+	end_date
+	string
+	N
+	0 - 1
+	...
+	bottom_left_x1
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the bottom left corner of the bounding box.
+	bottom_left_y1
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the bottom left corner of the bounding box.
+	upper_right_x2
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the upper right corner of the bounding box.
+	upper_right_y2
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the upper right corner of the bounding box.
+	species_id
+	int
+	N
+	>=0
+	Limits results based on the unique species identifier 
+	class_ids
+	int
+	N
+	>=0
+	Limits results based on the unique class identifier 
+	family_ids
+	int
+	N
+	>=0
+	Limits results based on the unique family identifier 
+	order_ids
+	int
+	N
+	>=0
+	Limits results based on the unique order identifier 
+	taxonomy_aggregate
+	bool
+	N
+	0-1
+	Set to TRUE when specifying class_ids, family_ids, or order_ids
+	station_id
+	int
+	N
+	>=0
+	Limits result based on the unique identifier associated with an observer’s location.
+	species_type
+	string
+	N
+	>= 0 
+	Limits results based on the species type(s) the organism belongs to. Must be an exact string match to the values found in the getAnimalTypes and getPlantTypes functions.
+	network
+	string
+	N
+	>= 0
+	Limits results based on the name of the network(s)/group(s) where the organism is presently observed. Must be an exact string match to the network name values found in the getPartnerNetworks function.
+	state
+	string
+	N
+	>= 0
+	Limits results based on the state the observation occurred in. Uses the two character postal abbreviation code.
+	phenophase_category
+	string
+	N
+	>= 0 
+	Limits results based on the phenophase category. This must be an exact string match to the corresponding values found in the getPhenophase function.
+	phenophase_id
+	int
+	N
+	>=0
+	Limits results based on the phenophase identifier.
+	pheno_class_ids
+	int
+	N
+	>=0
+	Limits results based on the phenoclass identifier.
+	pheno_class_aggregate
+	bool
+	N
+	0 -1
+	Set to TRUE when specifying phenoclass_ids
+	functional_type
+	string
+	N
+	>=0
+	Limits results based on the functional types of the species associated with the  observations. Must be an exact string match to the corresponding values found in the getSpeciesFunctionalTypes function.
+	additional_field
+	string
+	N
+	>=0
+	Allows additional optional data fields to be returned as part of the results. Additional field possible values specified in table below.
+	climate_data
+	int
+	N
+	0 - 1
+	Indicates whether or not ALL climate data fields should be returned as part of the results. Individual climate fields can be specified via the additional_field parameter. Setting this flag to true will supersede and selections made in additional_fields and will always return all the climate data fields. 
+	IP_Address
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting client’s IP address
+	user_email
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting user’s email.
+	request_src
+	string
+	Y
+	1
+	Non-optional, self-described usage report. Provide a very brief description of the tool or service putting the function to use. Please act in good faith.
+
+
+	
+
+Output Parameters
+Please see this referenced spreadsheet, outlining the field level metadata, to get a complete list of possible output parameters and their definitions. 
+
+
+Additional Field Allowed Values
+
+
+"dataset_id",
+"observedby_person_id",
+"submission_id",
+"submittedby_person_id",
+"submission_datetime",
+"updatedby_person_id",
+"update_datetime",
+"partner_group",
+"site_name",
+"species_functional_type",
+"species_category",
+"usda_plants_symbol",
+"itis_number",
+"plant_nickname",
+"patch",
+"protocol_id",
+"phenophase_category",
+"phenophase_name",
+"phenophase_definition_id",
+"secondary_species_specific_definition_id",
+"observation_time",
+"observation_group_id",
+"observation_comments",
+"observed_status_conflict_flag",
+"status_conflict_related_records",
+"gdd",
+"gddf",
+"tmax_winter",
+"tmax_spring",
+"tmax_summer",
+"tmax_fall",
+"tmax",
+"tmaxf",
+"tmin_winter",
+"tmin_spring",
+"tmin_summer",
+"tmin_fall",
+"tmin",
+"tminf",
+"prcp_winter",
+"prcp_spring",
+"prcp_summer",
+"prcp_fall",
+"prcp",
+"acc_prcp",
+"daylength",
+"Greenup_0",
+"Greenup_1",
+"MidGreenup_0",
+"MidGreenup_1",
+"Peak_0",
+"Peak_1",
+"NumCycles",
+"Maturity_0",
+"Maturity_1",
+"MidGreendown_0",
+"MidGreendown_1",
+"Senescence_0",
+"Senescence_1",
+"Dormancy_0",
+"Dormancy_1",
+"EVI_Minimum_0",
+"EVI_Minimum_1",
+"EVI_Amplitude_0",
+"EVI_Amplitude_1",
+"EVI_Area_0",
+"EVI_Area_1",
+"QA_Detailed_0",
+"QA_Detailed_1",
+"QA_Overall_0",
+"QA_Overall_1"
+
+
+Example REST Input:
+
+
+services.usanpn.org/npn_portal/observations/getObservations.xml?start_date=2012-01-01&end_date=2012-01-03&state[0]=AZ&state[1]=IL&request_src=rest_test
+
+
+getSummarizedData
+This function will return summarized observation data based on the search parameters, providing observation data, including the location, individual/species observed, the phenophase observed, and observational data pertaining to the individual and phenophase’s occurrence within the specified date range. This function allows for a wide array of input parameters with which to limit the results, most of which are optional. Among them are: a date range; this parameter is required, and a start_date and end_date must be provided in tandem. This function should be used with caution. If too many parameters are passed in, mutually exclusive results can be created, providing an empty set of data. If too few parameters are provided the results may be overwhelming. There is also the option to list certain, specific optional fields which are then included in the results. The data returned can be described as a series of rows, each representing a single individual and phenophase for the given date range. For each such row, is a description of when the phenophase began and when it ended. 
+The following text describes what exactly constitutes summarized data: 
+“Individual Phenometrics (formerly "summarized data") use phenophase status data to summarize the start and end dates of phenological activity of individual plants and animals at a site. This type of data is useful for understanding patterns of activity within a species, such as quantifying how many episodes of phenophase activity occur, and the duration of those episodes.  For example, in many water limited ecosystems, individual plants may have two or more periods of leaf and flower activity within a year because their phenology is triggered by rainfall.”
+It’s also important to note that this function can return massive amounts of data, including the ability to return all the summarized data in the database. If the requesting client is not able to handle large amounts of data, that client may crash. This function is configured to stream data when possible, so it’s recommended to stream results into an output file for later use.
+Any data in the response that is the value -9999 or “-9999” are to be considered ‘null’ or ‘empty’ values and indicate that there is no data for that value in that row.
+Note that this function requires an input parameter, request_src, which is a self-identifying string indicating the source of the request. Failing to provide this parameter will return an empty response.
+Data is cached daily for output via this function. Hence data added to the system within the last 24 hours before a request may not show up right away.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	start_date
+	string
+	N
+	0 - 1
+	Sets a limit on the dates at which data should be returned for the species. Should be in YYYY-MM-DD format. Must be used in conjunction with the end_date parameter.
+	end_date
+	string
+	N
+	0 - 1
+	...
+	bottom_left_x1
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the bottom left corner of the bounding box.
+	bottom_left_y1
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the bottom left corner of the bounding box.
+	upper_right_x2
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the upper right corner of the bounding box.
+	upper_right_y2
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the upper right corner of the bounding box.
+	individual_ids
+	int
+	N
+	>=0
+	Limits results based on the unique identifiers of the individuals for which the observations are made
+	phenophase_id
+	int
+	N
+	>=0
+	Limits results based on the unique identifiers of the phenophase for which the observations are about
+	species_id
+	int
+	N
+	>=0
+	Limits results based on the unique species identifier 
+	station_id
+	int
+	N
+	>=0
+	Limits result based on the unique identifier associated with an observer’s location.
+	species_type
+	string
+	N
+	>= 0 
+	Limits results based on the species type(s) the organism belongs to. Must be an exact string match to the values found in the getAnimalTypes and getPlantTypes functions.
+	network
+	string
+	N
+	>= 0
+	Limits results based on the name of the network(s)/group(s) where the organism is presently observed. Must be an exact string match to the network name values found in the getPartnerNetworks function.
+	state
+	string
+	N
+	>= 0
+	Limits results based on the state the observation occurred in. Uses the two character postal abbreviation code.
+	phenophase_category
+	string
+	N
+	>= 0 
+	Limits results based on the phenophase category. This must be an exact string match to the corresponding values found in the getPhenophase function.
+	functional_type
+	string
+	N
+	>=0
+	Limits results based on the functional types of the species associated with the  observations. Must be an exact string match to the corresponding values found in the getSpeciesFunctionalTypes function.
+	additional_field
+	string
+	N
+	>=0
+	Allows additional optional data fields to be returned as part of the results. Additional field possible values specified in table below.
+	climate_data
+	int
+	N
+	0 - 1
+	Indicates whether or not ALL climate data fields should be returned as part of the results. Individual climate fields can be specified via the additional_field parameter. Setting this flag to true will supersede and selections made in additional_fields and will always return all the climate data fields. 
+	IP_Address
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting client’s IP address
+	user_email
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting user’s IP address.
+	request_src
+	string
+	Y
+	1
+	Non-optional, self-described usage report. Provide a very brief description of the tool or service putting the function to use. Please act in good faith.
+
+
+	
+
+Additional Fields Allowed Values
+"dataset_id",
+"observedby_person_id",
+"partner_group",
+"site_name",
+"species_functional_type",
+"species_category",
+"usda_plants_symbol",
+"itis_number",
+"plant_nickname",
+"patch",
+"phenophase_category",
+"numys_in_series",
+"numdays_in_series",
+"multiple_observers",
+"multiple_firsty",
+"gdd",
+"gddf",
+"tmax_winter",
+"tmax_spring",
+"tmax_summer",
+"tmax_fall",
+"tmin_winter",
+"tmin_spring",
+"tmin_summer",
+"tmin_fall",
+"prcp_winter",
+"prcp_spring",
+"prcp_summer",
+"prcp_fall",
+"acc_prcp",
+"daylength",
+"Observed_status_conflict_flag"
+"Greenup_0",
+"Greenup_1",
+"MidGreenup_0",
+"MidGreenup_1",
+"Peak_0",
+"Peak_1",
+"NumCycles",
+"Maturity_0",
+"Maturity_1",
+"MidGreendown_0",
+"MidGreendown_1",
+"Senescence_0",
+"Senescence_1",
+"Dormancy_0",
+"Dormancy_1",
+"EVI_Minimum_0",
+"EVI_Minimum_1",
+"EVI_Amplitude_0",
+"EVI_Amplitude_1",
+"EVI_Area_0",
+"EVI_Area_1",
+"QA_Detailed_0",
+"QA_Detailed_1",
+"QA_Overall_0",
+"QA_Overall_1"
+
+
+Output Parameters
+Please see this referenced spreadsheet, outlining the field level metadata, to get a complete list of possible output parameters and their definitions. 
+
+
+Example REST Input:
+services.usanpn.org/npn_portal/observations/getSummarizedData.xml?start_date=2012-01-01&end_date=2012-01-10&request_src=rest_test
+
+
+
+
+getSiteLevelData
+This function will return site level summarized observation data (site phenometrics) based on the search parameters, providing observation data, including the location,species observed, the phenophase observed, and observational data pertaining to the species and phenophase occurrence within the specified date range. This function allows for a wide array of input parameters with which to limit the results, most of which are optional. Among them are: a date range; this parameter is required, and a start_date and end_date must be provided in tandem. This function should be used with caution. If too many parameters are passed in, mutually exclusive results can be created, providing an empty set of data. If too few parameters are provided the results may be overwhelming. There is also the option to list certain, specific optional fields which are then included in the results. The data returned can be described as a series of rows, each representing an aggregation of a given species and phenophase at a given location for the given date range. For each such row, is a description of when the phenophase began and when it ended based on an aggregation of all such species at the location. 
+The following text describes what exactly constitutes summarized data: 
+“Site Phenometrics use phenophase status data to summarize the start and end dates of phenological activity for species at a site by averaging across individuals at a site, or observation location. This type of data is useful for many applications, such as the creation of site or regional phenological calendars, and quantifying the length of the growing season for a site or region. These data can be used to understand how phenophase onset and end dates relate to climate drivers, such as seasonal temperatures and precipitation.  For example, you can investigate how the start of the "Breaking leaf buds" phenophase relates to winter temperature  across sites and years.”
+It’s also important to note that this function can return massive amounts of data, including the ability to return all the site-level summarized data in the database. If the requesting client is not able to handle large amounts of data, that client may crash. This function is configured to stream data when possible, so it’s recommended to stream results into an output file for later use.
+Any data in the response that is the value -9999 or “-9999” are to be considered ‘null’ or ‘empty’ values and indicate that there is no data for that value in that row.
+Note that this function requires an input parameter, request_src, which is a self-identifying string indicating the source of the request. Failing to provide this parameter will return an empty response.
+Data is cached daily for output via this function. Hence data added to the system within the last 24 hours before a request may not show up right away.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	start_date
+	string
+	N
+	0 - 1
+	Sets a limit on the dates at which data should be returned for the species. Should be in YYYY-MM-DD format. Must be used in conjunction with the end_date parameter.
+	end_date
+	string
+	N
+	0 - 1
+	...
+	num_days_quality_filter
+	int
+	N
+	0 - 1
+	This input parameter affects how the algorithm aggregates data. The integer value sets the upper limit on the number of days difference between the first Y value and the previous N value for each individual to be included in the data aggregation. That is to say, individuals of the given species/location which do not have a N value within the threshold of days since their first Y are not used to calculate the output values. Default value is 30. Recommended values are: 7, 14 or 30.
+	bottom_left_x1
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the bottom left corner of the bounding box.
+	bottom_left_y1
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the bottom left corner of the bounding box.
+	upper_right_x2
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the upper right corner of the bounding box.
+	upper_right_y2
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the upper right corner of the bounding box.
+	individual_ids
+	int
+	N
+	>=0
+	Limits results based on the unique identifiers of the individuals for which the observations are made
+	phenophase_id
+	int
+	N
+	>=0
+	Limits results based on the unique identifiers of the phenophase for which the observations are about
+	species_id
+	int
+	N
+	>=0
+	Limits results based on the unique species identifier 
+	station_id
+	int
+	N
+	>=0
+	Limits result based on the unique identifier associated with an observer’s location.
+	species_type
+	string
+	N
+	>= 0 
+	Limits results based on the species type(s) the organism belongs to. Must be an exact string match to the values found in the getAnimalTypes and getPlantTypes functions.
+	network
+	string
+	N
+	>= 0
+	Limits results based on the name of the network(s)/group(s) where the organism is presently observed. Must be an exact string match to the network name values found in the getPartnerNetworks function.
+	state
+	string
+	N
+	>= 0
+	Limits results based on the state the observation occurred in. Uses the two character postal abbreviation code.
+	phenophase_category
+	string
+	N
+	>= 0 
+	Limits results based on the phenophase category. This must be an exact string match to the corresponding values found in the getPhenophase function.
+	functional_type
+	string
+	N
+	>=0
+	Limits results based on the functional types of the species associated with the  observations. Must be an exact string match to the corresponding values found in the getSpeciesFunctionalTypes function.
+	additional_field
+	string
+	N
+	>=0
+	Allows additional optional data fields to be returned as part of the results. Additional field possible values specified in table below.
+	climate_data
+	int
+	N
+	0 - 1
+	Indicates whether or not ALL climate data fields should be returned as part of the results. Individual climate fields can be specified via the additional_field parameter. Setting this flag to true will supersede and selections made in additional_fields and will always return all the climate data fields. 
+	IP_Address
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting client’s IP address
+	user_email
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting user’s IP address.
+	request_src
+	string
+	Y
+	1
+	Non-optional, self-described usage report. Provide a very brief description of the tool or service putting the function to use. Please act in good faith.
+
+
+	
+
+Additional Fields Allowed Values
+"partner_group",www
+"site_name",
+"species_functional_type",
+"species_category",
+"usda_plants_symbol",
+"itis_number",
+"phenophase_category",
+"sd_first_yes_in_days",
+"min_first_yes_doy",
+"max_first_yes_doy",
+"median_first_yes_doy",
+"sd_numdays_since_prior_no",
+"sd_last_yes_in_days",
+"min_last_yes_doy",
+"max_last_yes_doy",
+"median_last_yes_doy",
+"sd_numdays_until_next_no",
+"num_individuals_with_multiple_firsty",
+"individuals_ids_with_multiple_firsty",
+"observed_status_conflict_flag",
+"observed_status_conflict_flag_individual_ids",
+"mean_gdd",
+"se_gddf",
+"tmax_winter",
+"tmax_spring",
+"tmax_summer",
+"tmax_fall",
+"tmin_winter",
+"tmin_spring",
+"tmin_summer",
+"tmin_fall",
+"prcp_winter",
+"prcp_spring",
+"prcp_summer",
+"prcp_fall",
+"mean_accum_prcp",
+"se_accum_prcp",
+"mean_daylength",
+"Se_daylength"
+"Greenup_0",
+"Greenup_1",
+"MidGreenup_0",
+"MidGreenup_1",
+"Peak_0",
+"Peak_1",
+"NumCycles",
+"Maturity_0",
+"Maturity_1",
+"MidGreendown_0",
+"MidGreendown_1",
+"Senescence_0",
+"Senescence_1",
+"Dormancy_0",
+"Dormancy_1",
+"EVI_Minimum_0",
+"EVI_Minimum_1",
+"EVI_Amplitude_0",
+"EVI_Amplitude_1",
+"EVI_Area_0",
+"EVI_Area_1",
+"QA_Detailed_0",
+"QA_Detailed_1",
+"QA_Overall_0",
+"QA_Overall_1"
+
+
+Output Parameters
+Please see this referenced spreadsheet, outlining the field level metadata, to get a complete list of possible output parameters and their definitions. 
+
+
+Example REST Input:
+services.usanpn.org/npn_portal/observations/getSiteLevelData.xml?start_date=2012-01-01&end_date=2012-03-30&request_src=rest_test
+
+
+getMagnitudeData
+This function will return magnitude data (magnitude phenometrics) based on the search parameters. The following text describes what exactly constitutes magnitude data:
+“Magnitude Phenometrics use phenophase status and intensity data to summarize the shape of phenological activity of individual plants and animals across multiple individuals or sites for a given time interval. This type of data is useful for understanding broad patterns of activity within and between species, such as quantifying how synchronous the phenology is between two interacting species, how the timing of peak activity varies between or phenophases, and how animal abundance varies between years.”
+To put it plainly, using this function requires specifying a date range as well as frequency parameter; it’s also recommended to specify the species and/or phenophases of interest. The data returned will be a series of rows representing aggregations of the abundance or intensity of each species/phenophase, over the range of time and delineated by the frequency. 
+This function should be used with caution. If too many parameters are passed in, mutually exclusive results can be created, providing an empty set of data. If too few parameters are provided the results may be overwhelming. There is also the option to list certain, specific optional fields which are then included in the results.It’s also important to note that this function can return massive amounts of data, including the ability to return all the magnitude-level data in the database. If the requesting client is not able to handle large amounts of data, that client may crash. This function is configured to stream data when possible, so it’s recommended to stream results into an output file for later use.
+Any data in the response that is the value -9999 or “-9999” are to be considered ‘null’ or ‘empty’ values and indicate that there is no data for that value in that row.
+Note that this function requires an input parameter, request_src, which is a self-identifying string indicating the source of the request. Failing to provide this parameter will return an empty response.
+Data is cached daily for output via this function. Hence data added to the system within the last 24 hours before a request may not show up right away.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	start_date
+	string
+	N
+	0 - 1
+	Sets a limit on the dates at which data should be returned. Should be in YYYY-MM-DD format. Must be used in conjunction with the end_date parameter. Required fields.
+	end_date
+	string
+	N
+	0 - 1
+	...
+	frequency
+	Int or string (see notes)
+	N
+	0 - 1
+	This input parameter affects how the algorithm aggregates data. The integer value specifies the number of days by which to delineate the period of time specified by the start_date and end_date, i.e. a value of 7 will delineate the period of time weekly. Any remainder days are grouped into the final delineation. This parameter, while typically an int, also allows for a “special” string value, “months” to be passed in. Specifying this parameter as “months” will delineate the period of time by the calendar months regardless of how many days are in each month. Defaults to 30 if omitted.
+	bottom_left_x1
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the bottom left corner of the bounding box.
+	bottom_left_y1
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the bottom left corner of the bounding box.
+	upper_right_x2
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on data returned. This number represents the X value of the upper right corner of the bounding box.
+	upper_right_y2
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on data returned. This number represents the Y value of the upper right corner of the bounding box.
+	phenophase_id
+	int
+	N
+	>=0
+	Limits results based on the unique identifiers of the phenophase for which the observations are about. Not required but recommended.
+	species_id
+	int
+	N
+	>=0
+	Limits results based on the unique species identifier. Not required but recommended.
+	station_id
+	int
+	N
+	>=0
+	Limits result based on the unique identifier associated with an observer’s location.
+	species_type
+	string
+	N
+	>= 0 
+	Limits results based on the species type(s) the organism belongs to. Must be an exact string match to the values found in the getAnimalTypes and getPlantTypes functions.
+	network
+	string
+	N
+	>= 0
+	Limits results based on the name of the network(s)/group(s) where the organism is presently observed. Must be an exact string match to the network name values found in the getPartnerNetworks function.
+	state
+	string
+	N
+	>= 0
+	Limits results based on the state the observation occurred in. Uses the two character postal abbreviation code.
+	phenophase_category
+	string
+	N
+	>= 0 
+	Limits results based on the phenophase category. This must be an exact string match to the corresponding values found in the getPhenophase function.
+	functional_type
+	string
+	N
+	>=0
+	Limits results based on the functional types of the species associated with the  observations. Must be an exact string match to the corresponding values found in the getSpeciesFunctionalTypes function.
+	additional_field
+	string
+	N
+	>=0
+	Allows additional optional data fields to be returned as part of the results. Additional field possible values specified in table below.
+	IP_Address
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting client’s IP address
+	user_email
+	string
+	N
+	0 - 1
+	Optionally provide usage statistics by providing the requesting user’s IP address.
+	request_src
+	string
+	Y
+	1
+	Non-optional, self-described usage report. Provide a very brief description of the tool or service putting the function to use. Please act in good faith.
+
+
+	
+
+Additional Fields Allowed Values
+“species_functional_type”
+“species_category”
+“usda_plants_symbol”
+“itis_number”
+“phenophase_category”
+“start_date_doy”
+“end_date_doy”
+“in-phase_search_method”
+“sd_numanimals_in-phase”
+“in-phase_per_hr_search_method”
+“sd_numanimals_in-phase_per_hr”
+“sd_numanimals_in-phase_per_hr_per_acre”
+
+
+Output Parameters
+Please see this referenced spreadsheet, outlining the field level metadata, to get a complete list of possible output parameters and their definitions. 
+Example REST Input:
+Provides all American Robin (Turdus migratorius) data from 2013, aggregated fortnightly.
+services.usanpn.org/npn_portal/observations/getMagnitudeData.json?start_date=2013-01-01&end_date=2013-12-31&species_id[0]=246&request_src=test&frequency=14
+
+
+
+
+
+
+getObservationsCount
+
+
+This function can be used to test the number of records retrieved by getObservations, getSummarized or get SiteLevelData by passing in a subset of the desired search parameters, to which a count of observation records is provided. This allows estimation of the payload in the later to be quickly generated for consideration by either the client or a data end user.
+
+
+Note that this function returns a count of raw records returned, hence the count is only truly accurate with regards to getObservations which also returns raw data. getSummarized and getSiteLevelData aggregate raw records, so the actual amount of records returned may be less. 
+A quick subjective analysis shows that the ratio for getSummarized is approximately 20 raw records : 1 getSummarized record and the ratio is similarly 115:1 in the case of getSiteLevelData.
+
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	start_date
+	string
+	N
+	0 -1
+	This filters counted observations based on a date range. Must be used in tandem with end_date parameter
+	end_date
+	string
+	N
+	0 -1
+	...
+	stations
+	string
+	N
+	0 -1 
+	Comma-separated list of station_ids by which to filter the observations counted
+	state
+	string
+	N
+	0-1
+	Comma-separated list of US state postal codes by which to filter the observations counted
+	dataset_ids
+	string
+	N
+	0 - 1
+	Comma-separated list of dataset ids by which to filter the observations counted
+	network
+	string
+	N
+	0 - 1
+	Comma-separated list of network names by which to filter the observations counted
+	species_id
+	string
+	N
+	0 -1 
+	Comma-separated list of species_ids by which to filter the observations counted
+	bottom_left_x1
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on observations counted. This number represents the X value of the bottom left corner of the bounding box.
+	bottom_left_y1
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on  observations counted. This number represents the Y value of the bottom left corner of the bounding box.
+	upper_right_x2
+	double
+	N
+	0 -1
+	One of four values for setting a geographical bounding box on  observations counted. This number represents the X value of the upper right corner of the bounding box.
+	upper_right_y2
+	double
+	N
+	0 - 1
+	One of four values for setting a geographical bounding box on  observations counted. This number represents the Y value of the upper right corner of the bounding box.
+	phenophase_category
+	string
+	N
+	0 -1
+	Comma-separated list of phenophase category names by which to filter the observations counted
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	obsCount
+
+
+
+
+	int
+	n/a
+	1
+	The number of observation records to be returned based on the input parameters provided
+	
+
+
+
+
+
+
+
+Example REST Input:
+services.usanpn.org/npn_portal/observations/getObservationsCount.json?start_date=2012-01-01&end_Date=2012-01-05
+
+
+
+
+GetPerson Port
+
+
+getPersonIDFromDrupalID
+
+
+This function will take a Drupal user’s unique identifier and convert it to a Nature’s Notebook person_id. This person_id is useful in other function such as getStationsForUser which requires a NN person_id. If the Drupal user doesn’t have an associated Nature’s Notebook account, then null is returned.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	drupal_id
+	int
+	Y
+	1
+	This is the Drupal ID of the user to tranlsate to a person ID.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	person_id
+
+
+	int
+	n/a
+	1
+	Nature’s Notebook Person ID of the user.
+	
+
+
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:getPersonIDFromDrupalID>
+                    <ns1:drupal_id>4326</ns1:drupal_id>
+            </ns1:getPersonIDFromDrupalID>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:getPersonIDFromDrupalIDResponse>
+                    <ns1:person_id>2364</ns1:person_id>
+            </ns1:getPersonIDFromDrupalIDResponse>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Input:
+services.usanpn.org/npn_portal/person/getPersonIDFromDrupalID.xml?drupal_id=4326
+
+
+getObserverDetails
+
+
+This function provides additional information about specific Nature’s Notebook users, such as users’ self-assessed skill levels and training. The function takes the user or users unique identifier and provides all such non-identifying information. If no ids are provided then information regarding all users is returned.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	person_id
+	int
+	N
+	>=0
+	This is the unique identifier of the user for which to get additional information. This is supported for backwards compatibility as the ‘ids’ input parameter is easier to use.
+	ids
+	string
+	N
+	1
+	A comma-separated string of unique identifiers for which to get additional information.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	observer
+
+
+	complexType
+	n/a
+	>=1
+	Row describing the observer’s experience level.
+	person_id
+	int
+	observer
+	1
+	Unique identifier of the observer.
+	read_online_training_materials
+	string
+	observer
+	1
+	Date which the user has read Nature’s Notebook online training material.
+	trained_in_person
+	string
+	observer
+	1
+	Date which the user has attended in-person Nature’s Notebook training
+	place_of_training
+	string
+	observer
+	1
+	Location where user attended in-person Nature’s Notebook training
+	ecological_experience
+	string
+	observer
+	1
+	Users’ level of professional experience working or studying in the field of ecology. In the user assessment form, this is a multiple-select option, so user selected options are separated by commas.
+	eco_experience_comments
+	string
+	observer
+	1
+	User provided comments regarding their own professional ecological experience.
+	self_described_naturalist
+	string
+	observer
+	1
+	Indicates if the user would describe his or her self as a ‘naturalist’.
+	naturalist_skill_level
+	string
+	observer
+	1
+	User provided naturalist self-skill assessment 
+	participate_as_part_of_job
+	string
+	observer
+	1
+	Indicates if the user participates in Nature’s Notebook as part of their job.
+	type_of_job
+	string
+	observer
+	1
+	The type of job the user does in conjunction with Nature’s Notebook
+	job_comments
+	string
+	observer
+	1
+	User provided comments regarding their job’s relation to Nature’s Notebook
+	
+
+
+
+
+
+
+
+Example REST Input:
+services.usanpn.org/npn_portal/person/getObserverDetails.xml?ids=5000,5001,5002
+
+
+
+
+
+
+getUserUpdate
+
+
+This function provides a timestamp indicating the last time an update was made to a particular user’s account. This could include updating their account information, joining or leaving a network, adding a new site or adding and removing individuals from existing sites. This function requires HTTPS communication as well as valid user credentials. Failure to provide those security measures will simply cause the function to return -1.
+
+
+Input Parameters
+
+
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	timestamp
+
+
+	int
+	n/a
+	1
+	Timestamp indicating the last time the user’s account was updated.
+	
+
+
+
+
+
+
+
+Example REST Input:
+http://localhost/npn_portal/person/getUserUpdate.json?access_token=X&consumer_key=Y
+
+
+GetIndividuals Port
+
+
+getIndividualsOfSpeciesAtStations
+
+
+This function will return a list of all the individuals, which are members of a species, among any number of stations which have observation data associated with them. This function will additionally give information regarding the number of observations made about each individual, although it will limit this count to a single year’s data. As input, this takes the speciesID, the year for which to count the number of observations, and a list of all the station ids for which to look for individuals. It returns all of the individual IDs, their nicknames, and the number of observations made about each one.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	species_id
+	int
+	Y
+	1
+	This is the ID of the species of which to target the individuals at the station.
+	year
+	string
+	N
+	0 - 1
+	The count of observations for the individuals can be limited to a single year’s worth of data. This parameter allows you to specify that year. If it is omitted than all observations ever made for the individual(s) are counted. This should be in the following format: YYYY
+	station_ids
+	int
+	Y
+	>= 1
+	This parameter allows you to specify any number of stations, by primary id, to search for individuals of the given species.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	individual
+
+
+
+
+	complexType
+
+
+	n/a
+	>= 0
+	Logical grouping of each individual’s data.
+	individual_id
+
+
+	int
+	individual
+	1
+	Primary key for the individual.
+	individual_name
+
+
+	string
+	individual
+	1
+	Unique name for individual. Provided by the user.
+	number_observations
+
+
+	int
+	individual
+	1
+	Number of observations made about the individual.
+	
+
+
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getIndividualsOfSpeciesAtStations>
+      <ns1:species_id>35</ns1:species_id>
+      <ns1:year>2009</ns1:year>
+      <ns1:station_ids>60</ns1:station_ids>
+      <ns1:station_ids>259</ns1:station_ids>
+    </ns1:getIndividualsOfSpeciesAtStations>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getIndividualsOfSpeciesAtStationsResponse>
+      <ns1:individual ns1:individual_id="1715"
+      ns1:individual_name="west" ns1:number_observations="5" />
+      <ns1:individual ns1:individual_id="1716"
+      ns1:individual_name="east" ns1:number_observations="5" />
+    </ns1:getIndividualsOfSpeciesAtStationsResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example REST Call:
+services.usanpn.org/npn_portal/individuals/getIndividualsOfSpeciesAtStations.xml?station_ids[0]=60&station_ids[1]=259&species_id=35&year=2009
+
+
+
+
+getIndividualsAtStations
+This function returns all of the individuals at a series of stations. For input, it takes a series of station IDs. For output, it returns each individual’s ID, kingdom, and name.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	station_ids
+	int
+	Y
+	>= 1
+	This parameter allows you to specify any number of stations, by primary id, to search for individuals.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	individual
+
+
+
+
+	complexType
+
+
+	n/a
+	>= 0
+	Logical grouping of each individual’s data.
+	individual_id
+
+
+	int
+	individual
+	1
+	Primary key for the individual.
+	individual_name
+
+
+	string
+	individual
+	1
+	Unique name for individual. Provided by the user.
+	kingdom
+	string
+	individual
+	1
+	The taxonomic kingdom to which the individual belongs, i.e. ‘Animalia’ or ‘Plantae’.
+	species_id
+	int
+	individual
+	1
+	The primary key of the species to which the individual belongs.
+	active
+	int
+	individual
+	1
+	Boolean int indicating whether or not the individual is one actively observed by the user; either 1 or 0.
+	seq_num
+	int
+	individual
+	1
+	The preferred sequence in which the individual should appear in lists, relative to other individuals at the same station. Defaults to the order in which the individuals are added to the station, but is customizable by the user.
+	file_url
+	string
+	individual
+	1
+	The URL to an optional user provided image of the individual plant.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getIndividualsAtStations>
+      <ns1:station_ids>507</ns1:station_ids>
+      <ns1:station_ids>523</ns1:station_ids>
+    </ns1:getIndividualsAtStations>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getIndividualsAtStationsResponse>
+      <ns1:individual ns1:individual_id="1200"
+      ns1:individual_name="dogwood" ns1:kingdom="Plantae"
+      ns1:species_id="12" />
+      <ns1:individual ns1:individual_id="1197"
+      ns1:individual_name="purple lilac" ns1:kingdom="Plantae"
+      ns1:species_id="36" />
+      <ns1:individual ns1:individual_id="1193"
+      ns1:individual_name="white t" ns1:kingdom="Plantae"
+      ns1:species_id="38" />
+     ...
+    </ns1:getIndividualsAtStationsResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example REST Call:
+services.usanpn.org/npn_portal/individuals/getIndividualsAtStations.xml?station_ids=507&station_ids=523
+
+
+getIndividualById
+This function will return a single individual by referencing its unique ID. For input, it takes the ID. For output, it returns the individual’s name, the kingdom it belongs to and its species ID.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	individual_id
+	int
+	Y
+	1
+	The primary id of the individual for which to provide additional information.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	individual_name
+
+
+	string
+	n/a
+	1
+	Unique name for individual. Provided by the user.
+	kingdom
+	string
+	n/a
+	1
+	The taxonomic kingdom to which the individual belongs, i.e. ‘Animalia’ or ‘Plantae’.
+	species_id
+	int
+	n/a
+	1
+	The primary key of the species to which the individual belongs.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getIndividualById>
+      <ns1:individual_id>250</ns1:individual_id>
+    </ns1:getIndividualById>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+
+
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getIndividualByIdResponse>
+      <ns1:individual_name>American beech-421</ns1:individual_name>
+      <ns1:kingdom>Plantae</ns1:kingdom>
+      <ns1:species_id>79</ns1:species_id>
+    </ns1:getIndividualByIdResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example REST Call:
+
+
+services.usanpn.org/npn_portal/individuals/getIndividualById.xml?individual_id=250
+
+
+getPlantDetails
+This function will return supplementary information, such as a plant’s shade or watering status, about an individual plant or number of individual plants. The individual’s id is used as input, but if omitted will return supplementary information about all plants.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	individual_id
+	int
+	N
+	>=0
+	The primary id of the individual(s) for which to provide supplementary information.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	individual_id
+
+
+	int
+	individual
+	1
+	Unique id for individual.
+	scientific_name
+	string
+	individual
+	1
+	The primary scientific name for the indivdual, including the Genus and Species taxonomic information.
+	individual_userstr
+	string
+	individual
+	1
+	Unique name for individual. Provided by the user.
+	patch
+	int
+	individual
+	1
+	Indicates if this individual represents a community of organisms.
+	patch_size
+	int
+	individual
+	1
+	Approximate size and units of individual if patch is true. Blank when not applicable.
+	shade_status
+	string
+	individual
+	1
+	Shade status of the plant.
+	wild
+	int
+	individual
+	1
+	Indicates if the individual is growing in the wild.
+	watered
+	int
+	individual
+	1
+	Indicates if the individual is regularly provided water by a non-natural source.
+	fertilized
+	int
+	individual
+	1
+	Indicates if the individual is regularly provided nutrition by a non-natural source
+	gender
+	string
+	individual
+	1
+	Indicates the gender of the individual plant.
+	planting_date
+	string
+	individual
+	1
+	Indicates the estimated date the individual was planted.
+	comment
+	string
+	individual
+	1
+	User contributed notes regarding the individual
+	plant_registration_date
+	string
+	individual
+	1
+	Date the plant was registered for monitoring.
+	death_date_observed
+	string
+	individual
+	1
+	Date the plant was observed to have died.
+	last_date_observed_alive
+	string
+	individual
+	1
+	Date the user last saw the plant alive
+	death_reason
+	string
+	individual
+	1
+	Apparent cause of the plant’s death
+	death_comments
+	string
+	individual
+	1
+	Additional user contributed notes regarding the plant’s death.
+	plant_image_url
+	string
+	individual
+	1
+	The URL to an optional user provided image of the individual plant.
+	plant_image_upload_date
+	string
+	individual
+	1
+	Date the image of the plant was provided.
+	
+
+
+
+
+
+Example REST Call:
+
+
+services.usanpn.org/npn_portal/individuals/getPlantDetails.xml?individual_id[0]=250&individual_id[1]=360
+
+
+getShadeStatuses
+This function will return a list of valid values for the ‘shade_status’ field used to create plant individuals. It requires no input parameters.
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	shade_status
+
+
+
+
+	complexType
+
+
+	n/a
+	>1
+	Logical grouping of all shade status fields.
+	status
+
+
+	string
+	shade_status
+	1
+	The shade status value.
+	
+
+
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+<env:Body>
+<ns1:getShadeStatuses/>
+</env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getShadeStatusesResponse>\
+                    <ns1:shade_status ns1:status="Full sun"/>
+                    <ns1:shade_status ns1:status="Mostly sun"/>
+                    <ns1:shade_status ns1:status="Half shade"/>
+                    <ns1:shade_status ns1:status="Mostly shade"/>
+                    <ns1:shade_status ns1:status="Full shade"/>
+                    <ns1:shade_status ns1:status="Open-grown tree"/>
+                    <ns1:shade_status ns1:status="Forest canopy tree"/>
+                    <ns1:shade_status ns1:status="Forest understory tree"/>
+            </ns1:getShadeStatusesResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+
+
+services.usanpn.org/npn_portal/individuals/getShadeStatuses.xml
+
+
+GetMetadata Port
+
+
+getMetadataFields
+This function is used to return additional details, descriptions and information regarding the various data fields that are returned through the NPN web services GetObservationsPort. This is useful if additional documentation needs to be supplied to data end users or if you need to generate companion documentation files alongside data output files. This function and the data it provides is closely related to the data reports avaialble for download at http://data.usanpn.org/observations
+This function has a number of input parameters which allow the results to be filtered.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	quality_check
+
+
+	boolean
+	N
+	0-1
+	Boolean filter used to prune data fields which are not related to some manner of quality check.
+	climate
+
+
+	boolean
+	N
+	0-1
+	Boolean filter used to prune data fields which are not related to climate data.
+	required
+	boolean
+	N
+	0-1
+	Boolean filter used to prune data fields which are not required/default fields in a data output report.
+	type
+	string
+	N
+	0-1
+	Filter used to prune data fields to a particular data report type. Allowed values: 'individual_summarized', 'raw', 'site_summarized', 'dataset', 'person',          'station', 'plant', 'protocol', 'species_protocol', 'phenophase', 'phenophase_definition', 'sspi', 'intensity', 'observation_group'
+	
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	meta_data
+
+
+	complexType
+	n/a
+	>=0
+	Logical grouping of each data field’s fields.
+	field_name
+
+
+	string
+	meta_data
+	1
+	The name of the field as it should appear to the data end user
+	field_description
+	string
+	meta_data
+	1
+	A complete description of the data field
+	seq_num
+	int
+	meta_data
+	1
+	The order in which the field should appear in the data output, relative to the other fields.
+	quality_check
+	boolean
+	meta_data
+	1
+	Indicates if this field is related to quality checks
+	climate
+	boolean
+	meta_data
+	1
+	Indicates if this field is related to climate data
+	required
+	boolean
+	meta_data
+	1
+	Indicates if this field is a required/default field in a data output report, i.e. in the case of getObservations these are the fields which are not available for selection via the optional_fields input parameter because they are always present
+	machine_name
+	string
+	meta_data
+	1
+	The name of the field as it’s provided by and for the service for manipulation. For instance, in the data report, optional fields can be specified as parameters using their machine names.This field may be empty, if the field is not manipulated directly in any way.
+	controlled_values
+	string
+	meta_data
+	1
+	Pipe separated string, containing all possible values for this data field. Most fields do not have a list of a discrete values, in which case this field is empty.
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/metadata/getMetadataFields.xml?type=raw&required=1
+
+
+GetSubmission Port
+
+
+getLastSubmissionForPerson
+This function is used to find out the last date added an observation to the database. It takes valid user credentials as input and returns the last date, as well as any response messages, and a success or failure response code.
+Note that since this function transmits secure user data, it can only be accessed via HTTPS. Accessing the function via standard  HTTP will result in a failure response.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	date
+
+
+	string
+	n/a
+	1
+	The date the user last entered an observation.
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getLastSubmissionForPerson>
+                    <ns1:user_id>2364</ns1:user_id>
+                    <ns1:user_pw>XXXX</ns1:user_pw>
+            </ns1:getLastSubmissionForPerson>
+    </env:Body>
+</env:Envelope>
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getLastSubmissionForPersonResponse>
+                    <ns1:date>2012-05-15 16:50:41</ns1:date>
+                    <ns1:response_messages>
+                            <ns1:message>Submission Date successfully received</ns1:message>
+                    </ns1:response_messages>
+                    <ns1:response_code>1</ns1:response_code>
+            </ns1:getLastSubmissionForPersonResponse>
+    </env:Body>
+</env:Envelope>
+Example REST Call:
+services.usanpn.org/npn_portal/submissions/getLastSubmissionForPerson.xml?user_id=2364&user_pw=XXXX
+
+
+
+
+GetSpecies Port
+
+
+getSpecies
+This function is used to get a list of all species in the database. No input parameters are required, and the function will return each species’ ID, Common Name, Genus, Species Name, and ITIS number.
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species
+
+
+	complexType
+
+
+	n/a
+	>1
+	Logical grouping of all species data fields.
+	species_id
+
+
+	int
+	species
+	1
+	The primary key for the species.
+	common_name
+	string
+	species
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	genus
+	string
+	species
+	1
+	The genus fragment of the species’ scientific name, and taxonomic grouping.
+	species
+	string
+	species
+	1
+	The species fragment of the species’ scientific name, and taxonomic grouping.
+	itis_taxonomic_sn
+
+
+	string
+	species
+	1
+	Unique identifier assigned to the species as designated by the organization, ITIS.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+        <SOAP-ENV:Body>
+                <ns1:getSpecies/>
+        </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesResponse>
+      <ns1:species ns1:species_id="120"
+      ns1:common_name="'ohi'a lehua" ns1:genus="Metrosideros"
+      ns1:species="polymorpha" ns1:itis_taxonomic_sn="27259" />
+      <ns1:species ns1:species_id="174" ns1:common_name="alfalfa"
+      ns1:genus="Medicago" ns1:species="sativa"
+      ns1:itis_taxonomic_sn="183623" />
+          ...
+    </ns1:getSpeciesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpecies.xml
+
+
+getSpeciesById
+This function is used to get information about a specific species, based on a species ID. As input, it takes the species’ speciesID, and for output it returns the species’ ID, Common Name, Genus, Species Name, and ITIS number.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	species_id
+	int
+	Y
+	1
+	The primary id of the species for which to provide additional information.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	common_name
+
+
+	string
+	n/a
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	genus
+	string
+	n/a
+	1
+	The genus fragment of the species’ scientific name, and taxonomic grouping.
+	species
+	string
+	n/a
+	1
+	The species fragment of the species’ scientific name, and taxonomic grouping.
+	itis_taxonomic_sn
+
+
+	string
+	n/a
+	1
+	Unique identifier assigned to the species as designated by the organization, ITIS.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesById>
+      <ns1:species_id>3</ns1:species_id>
+    </ns1:getSpeciesById>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+
+
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesByIdResponse>
+      <ns1:common_name>red maple</ns1:common_name>
+      <ns1:genus>Acer</ns1:genus>
+      <ns1:species>rubrum</ns1:species>
+      <ns1:itis_taxonomic_sn>28728</ns1:itis_taxonomic_sn>
+    </ns1:getSpeciesByIdResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesById.xml?species_id=3
+
+
+getSpeciesByState
+This function will return a list of all species, filtered by state and, optionally, kingdom. As input, it takes a standard US postal state abbreviation, and optionally a kingdom name. The kingdom name can be either ‘Animalia’ for animal species or ‘Plantae’ for plant species. The output will return each species’ ID, Common Name, Genus, Species Name, and ITIS number.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	state
+	string
+	Y
+	1
+	The state for which to filter the species returned. Should be formatted as a standard US Postal abbreviation, i.e. ‘AZ’.
+	kingdom
+
+
+	string
+	N
+	0 - 1
+	Optional field to filter the species returned by kingdom. Should be either ‘Plantae’ or ‘Animalia’.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species
+
+
+	complexType
+
+
+	n/a
+	>1
+	Logical grouping of all species data fields.
+	species_id
+
+
+	int
+	species
+	1
+	The primary key for the species.
+	common_name
+	string
+	species
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	genus
+	string
+	species
+	1
+	The genus fragment of the species’ scientific name, and taxonomic grouping.
+	species
+	string
+	species
+	1
+	The species fragment of the species’ scientific name, and taxonomic grouping.
+	itis_taxonomic_sn
+
+
+	string
+	species
+	1
+	Unique identifier assigned to the species as designated by the organization, ITIS.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesByState>
+      <ns1:state>HI</ns1:state>
+      <ns1:kingdom>Plantae</ns1:kingdom>
+    </ns1:getSpeciesByState>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesByStateResponse>
+      <ns1:species ns1:species_id="120"
+      ns1:common_name="'ohi'a lehua" ns1:genus="Metrosideros"
+      ns1:species="polymorpha" ns1:itis_taxonomic_sn="27259" />
+      <ns1:species ns1:species_id="174" ns1:common_name="alfalfa"
+      ns1:genus="Medicago" ns1:species="sativa"
+      ns1:itis_taxonomic_sn="183623" />
+          ...
+    </ns1:getSpeciesByStateResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesByState.xml?state=HI&kingdom=Plantae
+
+
+getSpeciesUpdateDate
+This function will return the last date which the information in the species table was changed. This would feasibly allow for a consumer of the service to cache locally information about species, relying on this function, with a much smaller payload, to inform it of possible changes. This function requires no input, and returns only a date value.
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	update_date
+
+
+
+
+	string
+
+
+	n/a
+	1
+	Last date any information regarding any of the species in the NPN database was updated. In the format of YYYY-MM-DD.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesUpdateDate />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesUpdateDateResponse>
+      <ns1:update_date>2009-01-01</ns1:update_date>
+    </ns1:getSpeciesUpdateDateResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesUpdateDate.xml
+
+
+getPlantTypes
+This function will return a list of all of the species types in the database, which are for plants. A species type might be ‘conifer’ or ‘deciduous’ or some other group of species a plant belongs to. This function requires no input, and returns a list of all plant type names, ids, and a count of the number of species belonging to each group.
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	type
+
+
+
+
+
+
+	complexType
+
+
+
+
+	n/a
+	>= 1
+	Logical grouping of species type data fields.
+	species_type
+
+
+	string
+	type
+	1
+	The name of the species type.
+	species_type_id
+	int
+	type
+	1
+	Unique identifier for the species type.
+	species_count
+	int
+	type
+	1
+	The number of species which belong to that species type. Each species can belong to any number of species types.
+	
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPlantTypes />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPlantTypesResponse>
+      <ns1:type ns1:species_type="Ornamental"
+      ns1:species_type_id="1" ns1:species_count="31" />
+      <ns1:type ns1:species_type="Deciduous"
+      ns1:species_type_id="2" ns1:species_count="95" />
+          ...
+    </ns1:getPlantTypesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getPlantTypes.xml
+
+
+getAnimalTypes
+This function will return a list of all of the species types in the database, which are for animals. A species type might be ‘mammals or ‘insects’ or some other group of species an animal belongs to. This function requires no input, and returns a list of all animal type names, ids, and a count of the number of species belonging to each group
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	type
+
+
+
+
+
+
+	complexType
+
+
+
+
+	n/a
+	>= 1
+	Logical grouping of species type data fields.
+	species_type
+
+
+	string
+	type
+	1
+	The name of the species type.
+	species_type_id
+	int
+	type
+	1
+	Unique identifier for the species type.
+	species_count
+	int
+	type
+	1
+	The number of species which belong to that species type. Each species can belong to any number of species types.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getAnimalTypes />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getAnimalTypesResponse>
+      <ns1:type ns1:species_type="Amphibian"
+      ns1:species_type_id="14" ns1:species_count="32" />
+      <ns1:type ns1:species_type="Bird" ns1:species_type_id="15"
+      ns1:species_count="36" />
+          ...
+    </ns1:getAnimalTypesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getAnimalTypes.xml
+
+
+getSpeciesFunctionalTypes
+This function will return a list of all of the species functional types in the database.This function requires no input, and returns a list of all functional types.
+
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	type_name
+
+
+	string
+	type
+	1
+	The name of the species functional type.
+	
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesFunctionalTypes.xml
+
+
+getSpeciesFilter
+This is a diverse function which allows the list of species to be filtered using a number of different variables, and returns information about each species, including the number of observations made about the species among all locations and/or throughout a year. As input, species can be filtered by any combination of network id (singular), group id (multiple), station id (multiple); input also optionally takes a start and end date for which to limit the count of observations made about each species. Omitting the year will return results for all time. If all parameters are omitted then this function will return data about all species. The function will return a list of filtered species’ names, ids, and the number of observations made about each of them.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	network_id
+	int
+	N
+	0 - 1
+	The primary key of the network for which to filter species.
+	start_date
+
+
+
+
+	string
+	N
+	0 - 1
+	Optional field to limit the count of observations associated with each species to a period of time. Format should be as: YYYY-MM-DD. Must provide a corresponding end_date value for filtering to work properly.
+	end_date
+	string
+	N
+	0-1
+	Optional field to limit the count of observations associated with each species to a period of time. Format should be as: YYYY-MM-DD. Must provide a corresponding start_date value for filtering to work properly.
+	group_ids
+
+
+	int
+	N
+	>=0
+	One or more primary keys associated with a species type. Optional field to limit the species returned to those belonging to one or more of the given types.
+	station_ids
+
+
+	int
+	N
+	>=0
+	One or more primary keys associated with a station. Optional field to limit the species returned to those present at one of the listed stations.
+	
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species
+
+
+	complexType
+
+
+	n/a
+	>1
+	Logical grouping of all species data fields.
+	species_id
+
+
+	int
+	species
+	1
+	The primary key for the species.
+	common_name
+	string
+	species
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	genus
+	string
+	species
+	1
+	The genus fragment of the species’ scientific name, and taxonomic grouping.
+	species
+	string
+	species
+	1
+	The species fragment of the species’ scientific name, and taxonomic grouping.
+	number_observations
+
+
+	int
+	species
+	1
+	Number of observations made about that species.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getSpeciesFilter>
+      <ns1:group_ids>9</ns1:group_ids>
+      <ns1:group_ids>3</ns1:group_ids>
+    </ns1:getSpeciesFilter>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:getSpeciesFilterResponse>
+                    <ns1:species ns1:common_name="quaking aspen" ns1:genus="Populus" ns1:species="tremuloides" ns1:species_id="27" ns1:number_observations="1"/>
+                    <ns1:species ns1:common_name="Red Rothomagensis lilac" ns1:genus="Syringa" ns1:species="chinensis" ns1:species_id="35" ns1:number_observations="4"/><ns1:species ns1:common_name="paradise apple" ns1:genus="Malus" ns1:species="pumila" ns1:species_id="83" ns1:number_observations="1"/><ns1:species ns1:common_name="American goldfinch" ns1:genus="Carduelis" ns1:species="tristis" ns1:species_id="240" ns1:number_observations="1"/><ns1:species ns1:common_name="American robin" ns1:genus="Turdus" ns1:species="migratorius" ns1:species_id="246" ns1:number_observations="2"/>
+            </ns1:getSpeciesFilterResponse>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesFilter.xml?group_ids[0]=9&group_ids[1]=3&start_date=2010-01-01&end_date=2010-12-31
+
+
+getSpeciesByItis
+This function will return information about the species which is associated with the provided ITIS number.. As input, it takes the species’ unique ITIS identifier. The output will return each species’ ID, Common Name, Genus, and Species Name.
+When using the REST version of this function, please note the unusual capitalization of the URL.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	itis_sn
+
+
+	int
+	Y
+	1
+	The ITIS number of the species for which information should be returned.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species_id
+
+
+	int
+	n/a
+	1
+	The primary key for the species.
+	common_name
+	string
+	n/a
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	genus
+	string
+	n/a
+	1
+	The genus fragment of the species’ scientific name, and taxonomic grouping.
+	species
+	string
+	n/a
+	1
+	The species fragment of the species’ scientific name, and taxonomic grouping.
+	itis_taxonomic_sn
+
+
+	string
+	n/a
+	1
+	Unique identifier assigned to the species as designated by the organization, ITIS.
+	
+
+
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getSpeciesByITIS>
+                    <ns1:itis_sn>27806</ns1:itis_sn>
+            </ns1:getSpeciesByITIS>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getSpeciesByITISResponse>
+                    <ns1:common_name>flowering dogwood</ns1:common_name>
+                    <ns1:genus>Cornus</ns1:genus>
+                    <ns1:species>florida</ns1:species>
+                    <ns1:species_id>12</ns1:species_id>
+            </ns1:getSpeciesByITISResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesByItis.xml?itis_sn=27806
+
+
+getSpeciesByScientificName
+This function will return information about the species which is associated with the provided Genus and Species name.. As input, it takes the species’ genus and species name (separately). The output will return each species’ ID, Common Name, and ITIS number..
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	genus
+
+
+	string
+	Y
+	1
+	The genus portion of the species’ name for which to return information.
+	species
+	string
+	Y
+	1
+	The species portion of the species’ name for which to return information.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species_id
+
+
+	int
+	n/a
+	1
+	The primary key for the species.
+	common_name
+	string
+	n/a
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	itis_taxonomic_sn
+
+
+	string
+	n/a
+	1
+	Unique identifier assigned to the species as designated by the organization, ITIS.
+	
+
+
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getSpeciesByScientificName>
+                    <ns1:genus>Clintonia</ns1:genus>
+                    <ns1:species>borealis</ns1:species>
+            </ns1:getSpeciesByScientificName>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getSpeciesByScientificNameResponse>
+                    <ns1:common_name>bluebead</ns1:common_name>
+                    <ns1:species_id>9</ns1:species_id>
+                    <ns1:itis_taxonomic_sn>42903</ns1:itis_taxonomic_sn>
+            </ns1:getSpeciesByScientificNameResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesByScientificName.xml?genus=Clintonia&species=borealis
+
+
+getSpeciesByCommonName
+This function will return information about the species which is associated with the provided common name. As input, it takes the species’ common name. The output will return the species’ ID, genus name, species name, and ITIS number. This will search on a species’ primary common name as well as any secondary common names.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	common_name
+
+
+	string
+	Y
+	1
+	The species’ common name for which to return information.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species_id
+
+
+	int
+	n/a
+	1
+	The primary key for the species.
+	common_name
+	string
+	n/a
+	1
+	Common name for a given species, e.g. ‘Red Maple’ for ‘Acer Rubrum’. A species may have more than one common name but this is the primary name- the most frequently used name - associated with the species.
+	itis_taxonomic_sn
+
+
+	string
+	n/a
+	1
+	Unique identifier assigned to the species as designated by the organization, ITIS.
+	genus
+	string
+	n/a
+	1
+	The genus fragment of the species’ scientific name, and taxonomic grouping.
+	species
+	string
+	n/a
+	1
+	The species fragment of the species’ scientific name, and taxonomic grouping.
+	
+
+
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getSpeciesByCommonName>
+                    <ns1:common_name>thickleaved wild strawberry</ns1:common_name>
+            </ns1:getSpeciesByCommonName>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getSpeciesByCommonNameResponse>
+                    <ns1:species_id>17</ns1:species_id>
+                    <ns1:genus>Fragaria</ns1:genus>
+                    <ns1:species>virginiana</ns1:species>
+                    <ns1:itis_taxonomic_sn>24639</ns1:itis_taxonomic_sn>
+            </ns1:getSpeciesByCommonNameResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/species/getSpeciesByCommonName.xml?common_name=thickleaved%20wild%20strawberry
+
+
+GetStations Port
+
+
+getAllStations
+This function returns a complete list of all stations. As input, the list can optionally be filtered by state, using a standard US postal state abbreviation, observer, using the user’s unique identifier, or network id, using the network’s identifier.. It will return a list of all stations’ latitude and longitude, names, and ids.  
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	state_code
+
+
+	string
+	N
+	0 - 1
+	The state to filter the stations returned. This is an optional field. In the format of a standard US Postal abbreviation, e.g. ‘AZ’.
+	person_id
+	int
+	N
+	0-1
+	A unique identifier for an observer which will filter results based on the person that created the station.
+	network_ids
+	int
+	N
+	>=0
+	A unique identifier for a network which will filter results based on sites’ participation in a network.
+	
+
+
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all station data fields.
+	latitude
+	float
+	station
+	1
+	Geographic latitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+	longitude
+
+
+	float
+	station
+	1
+	Geographic longitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+
+
+	station_name
+	string
+	station
+	1
+	Unique name for the station, as provided by the user.
+	station_id
+
+
+	int
+	station
+	1
+	Primary key for the station.
+	network_id
+	int
+	station
+	1
+	The primary key of the network to which the station belongs. If the station doesn’t belong to any network, then this is set to 0.
+	file_url
+	string
+	station
+	1
+	URL pointing to a user provided image of the station.
+	is_owner
+	boolean
+	station
+	0 - 1
+	Indicates if the station was created by the person specified by the person_id input parameter. This field is omitted if the person_id input param was not used in the reuqest.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getAllStations>
+      <ns1:state_code>MD</ns1:state_code>
+    </ns1:getAllStations>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getAllStationsResponse>
+                    <ns1:station ns1:latitude="39.255596" ns1:longitude="-76.70256" ns1:station_name="PPN_9180001" ns1:station_id="416" ns1:network_id="0" ns1:is_public="false"/>
+                    <ns1:station ns1:latitude="39.488998" ns1:longitude="-76.806" ns1:station_name="PPN_9180002" ns1:station_id="417" ns1:network_id="0" ns1:is_public="false"/>
+                    ...
+            </ns1:getAllStationsResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/stations/getAllStations.xml?state_code=MD
+
+
+getStationsForUser
+
+
+This function will return a list of all stations which belong to a particular user. As input, credentials for the person’s are required: either the user’s unique identifier or an access key and consumer key combo. The return results include the list of stations’ which have either been created by the user as well as stations that belong to a network that the user also belongs to.
+Note that accessing this function requires communicating over HTTPS, rather than standard HTTP. This is for security purposes as sensitive user data is transmitted. Failure to use HTTPS will result in getting an empty data set.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	person_id
+
+
+	int
+	N
+	0 - 1
+	The person to whom the stations returned belong. This field is used only when you have the person’s id, i.e. you created the person via the web service’s createUser function.
+	access_token
+	string
+	N
+	0 - 1
+	The access token belonging to the user for whom the stations returned belong. This field is used in conjunction with the consumer_key parameter, when the user was retrieved via OAuth.
+	consumer_key
+	string
+	N
+	0 - 1
+	The consumer key of the consumer who prompted the user for the corresponding access token. This is used as a security measure to ensure that access tokens are only used by their respective consumers. This parameter must be used in conjunction with the access_token paramater, and is only relevant when the user was retrieved via OAuth.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all station data fields.
+	latitude
+	float
+	station
+	1
+	Geographic latitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+	longitude
+
+
+	float
+	station
+	1
+	Geographic longitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+
+
+	station_name
+	string
+	station
+	1
+	Unique name for the station, as provided by the user.
+	station_id
+
+
+	int
+	station
+	1
+	Primary key for the station.
+	network_id
+	int
+	station
+	1
+	The primary key of the network to which the station belongs. If the station doesn’t belong to any network, then this is set to 0.
+	file_url
+	string
+	station
+	1
+	URL pointing to a user provided image of the station.
+	is_owner
+	boolean
+	station
+	0 - 1
+	Indicates if the station was created by the person specified.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getStationsForUser>
+      <ns1:person_id>2364</ns1:person_id>
+    </ns1:getStationsForUser>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getStationsForUserResponse>
+                    <ns1:station ns1:latitude="40.749924" ns1:longitude="-89.564064" ns1:station_name="forest park" ns1:station_id="2338" ns1:network_id="0" ns1:is_public="false"/>
+                    <ns1:station ns1:latitude="32.29921" ns1:longitude="-110.843369" ns1:station_name="sabino canyon" ns1:station_id="2665" ns1:network_id="0" ns1:is_public="false"/>
+                    ...
+            </ns1:getStationsForUserResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/stations/getStationsForUser.xml?person_id=2364
+
+
+
+
+
+
+getStationsWithSpecies
+
+
+This function will return a list of all stations which have an individual whom is a member of a set of species. As input, the function requires a series of species IDs, and the return results include the list of stations’ latitude and longitude, names, and ids.  
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	species_id
+
+
+	int
+	Y
+	>=1
+	Array of species for which to return stations containing said species.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all station data fields.
+	latitude
+	float
+	station
+	1
+	Geographic latitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+	longitude
+
+
+	float
+	station
+	1
+	Geographic longitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+
+
+	station_name
+	string
+	station
+	1
+	Unique name for the station, as provided by the user.
+	station_id
+
+
+	int
+	station
+	1
+	Primary key for the station.
+	
+
+
+
+
+
+ Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getStationsWithSpecies>
+      <ns1:species_id>3</ns1:species_id>
+    </ns1:getStationsWithSpecies>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getStationsWithSpeciesResponse>
+      <ns1:station ns1:latitude="43.08535"
+      ns1:longitude="-70.69133" ns1:station_name="Home"
+      ns1:station_id="2" />
+      <ns1:station ns1:latitude="35.806389"
+      ns1:longitude="-78.691391"
+      ns1:station_name="Meredith College Forest Plot"
+      ns1:station_id="12" />
+      ...
+    </ns1:getStationsWithSpeciesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/stations/getStationsWithSpecies.xml?species_id=3
+
+
+
+
+getStationCountByState
+
+
+This function will return a list of all the state codes in the US as well as a corresponding count of all the stations located in each state. This requires no input variables, and returns a list of each state and its respective count.
+
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	state_count
+
+
+	complexType
+
+
+	n/a
+	>=1
+	Logical grouping of all station count data fields.
+	state
+	string
+	state_count
+	1
+	State abbreviation of the state for the corresponding count. In the format of a standard US Postal state abbreviation, e.g. ‘AZ’.
+	number_stations
+
+
+	int
+	state_count
+	1
+	Count of the number of stations in the corresponding state.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getStationCountByState />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getStationCountByStateResponse>
+      <ns1:state_count ns1:state="CA" ns1:number_stations="404" />
+      <ns1:state_count ns1:state="CO" ns1:number_stations="375" />
+      ...
+    </ns1:getStationCountByStateResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/stations/getStationCountByState.xml
+
+
+        
+getStationsById
+
+
+This function will return data about any number of stations, based on the stations’ ids. 
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	station_id
+
+
+	int
+	Y
+	>=1
+	Array of station ids for which to return data.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all station data fields.
+	latitude
+	float
+	station
+	1
+	Geographic latitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+	longitude
+
+
+	float
+	station
+	1
+	Geographic longitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+
+
+	station_name
+	string
+	station
+	1
+	Unique name for the station, as provided by the user.
+	station_id
+
+
+	int
+	station
+	1
+	Primary key for the station.
+	
+
+
+
+
+
+Example SOAP Input:
+
+
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+        <SOAP-ENV:Body>
+                <ns1:getStationById>
+                        <ns1:station_id>5122</ns1:station_id>
+                </ns1:getStationById>
+        </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example SOAP Output:
+
+
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://usanpn.service.org/types">
+        <SOAP-ENV:Body>
+                <ns1:getStationByIdResponse>
+                        <ns1:latitude>42.324741</ns1:latitude>
+                        <ns1:longitude>-89.120316</ns1:longitude>
+                        <ns1:station_name>fgvzgv</ns1:station_name>
+                        <ns1:station_id>5122</ns1:station_id>
+                </ns1:getStationByIdResponse>
+        </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Input: 
+
+
+services.usanpn.org/npn_portal/stations/getStationsById.xml?station_id[0]=5122
+
+
+
+
+getStates
+
+
+This function will return a list of all state abbreviations for US states, US territories, Canadian provinces, and Mexican states, for use in the USA-NPN program. This function requires no input, and returns a state code, state name, and state id for each such entity.
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	state
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all state data fields.
+	state_code
+	string
+	state
+	1
+	Abbreviation for the state. This is in the format of a US Postal state code, e.g. ‘AZ’.
+	state_name
+
+
+	string
+	state
+	1
+	The name of the state, province or territory.
+
+
+	state_id
+	int
+	state
+	1
+	Primary key for the entity.
+	
+
+
+
+ Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getStates/>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getStatesResponse>
+                    <ns1:state ns1:state_code="AK" ns1:state_name="Alaska" ns1:state_id="1"/>
+                    <ns1:state ns1:state_code="AL" ns1:state_name="Alabama" ns1:state_id="2"/>
+                    <ns1:state ns1:state_code="AR" ns1:state_name="Arkansas" ns1:state_id="3"/>
+                    ...
+            </ns1:getStatesResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/stations/getStates.xml
+
+
+
+
+getStationsForNetwork
+
+
+This function will return data about stations belonging to a particular network. For input, this takes the id of the network in question. For output, it provides the stations’ longitudes, latitudes, and names, ids and whether or not the station is public.
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	network_id
+
+
+	int
+	Y
+	1
+	The primary key for the network for which to return data about its stations.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all station data fields.
+	latitude
+	float
+	station
+	1
+	Geographic latitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+	longitude
+
+
+	float
+	station
+	1
+	Geographic longitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+
+
+	station_name
+	string
+	station
+	1
+	Unique name for the station, as provided by the user.
+	station_id
+
+
+	int
+	station
+	1
+	Primary key for the station.
+	network_id
+	int
+	station
+	1
+	The primary key of the network to which the station belongs. If the station doesn’t belong to any network, then this is set to 0.
+	file_url
+	string
+	station
+	1
+	URL pointing to a user provided image of the station.
+	
+
+
+
+
+
+
+
+Example SOAP Input:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getStationsForNetwork>
+                    <ns1:network_id>15</ns1:network_id>
+            </ns1:getStationsForNetwork>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getStationsForNetworkResponse>
+                    <ns1:station ns1:latitude="42.468426" ns1:longitude="-71.007065" ns1:station_name="Saugus Iron Works National Historic Site" ns1:station_id="2637" ns1:is_public="false"/><ns1:station ns1:latitude="39.070278" ns1:longitude="-100.366264" ns1:station_name="Yard" ns1:station_id="2791" ns1:is_public="false"/>
+                    <ns1:station ns1:latitude="44.76112" ns1:longitude="-86.073418" ns1:station_name="Otter Creek" ns1:station_id="4860" ns1:is_public="false"/><ns1:station ns1:latitude="44.844917" ns1:longitude="-85.975487" ns1:station_name="Inspiration Point" ns1:station_id="4861" ns1:is_public="false"/>
+                    ...
+            </ns1:getStationsForNetworkResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Input: 
+
+
+services.usanpn.org/npn_portal/stations/getStationsForNetwork.xml?network_id=69
+
+
+
+
+getStationsByLocation
+
+
+This function will return data about stations within a particular geographic region. This function takes a WKT string as input and will return info on each station that falls within the boundary or boundaries defined by the WKT. The WKT may not be empty and must be valid.
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	wkt
+
+
+	string
+	Y
+	1
+	The primary key for the network for which to return data about its stations.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all station data fields.
+	latitude
+	float
+	station
+	1
+	Geographic latitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+	longitude
+
+
+	float
+	station
+	1
+	Geographic longitude of the station, as provided by the user. Uses WGS84 datum. Consistently to 6 decimal places.
+
+
+	station_name
+	string
+	station
+	1
+	Unique name for the station, as provided by the user.
+	station_id
+
+
+	int
+	station
+	1
+	Primary key for the station.
+	
+
+
+
+
+
+Example REST Input: 
+(Only available in development environment at the time of this writing)
+
+
+services.usanpn.org/npn_portal/stations/getStationsByLocation.json?wkt=POLYGON((-110.94484396954107%2032.23623109416672,-110.96166678448247%2032.23594069208043,-110.95960684795904%2032.21328646993733,-110.94244071026372%2032.21343170728929,-110.93935080547857%2032.23216538049456,-110.94484396954107%2032.23623109416672))
+
+
+
+
+GetNetworks Port
+
+
+getPartnerNetworks
+
+
+This function will return a list of all the networks, i.e. organizations, with which NPN is associated. This requires no input variables and returns a list of each network’s name and id.
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	network
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all network data fields.
+	network_id
+	int
+	network
+	1
+	Primary key of the network.
+	network_name
+
+
+	string
+	network
+	1
+	Name of the network.
+
+
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPartnerNetworks />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPartnerNetworksResponse>
+      <ns1:network ns1:network_id="5"
+      ns1:network_name="Monarch Watch" />
+      <ns1:network ns1:network_id="9"
+      ns1:network_name="Great Sunflower Project" />
+      <ns1:network ns1:network_id="13"
+      ns1:network_name="Juniper Pollen Project" />
+      <ns1:network ns1:network_id="14"
+      ns1:network_name="Wisconsin Phenological Society" />
+    </ns1:getPartnerNetworksResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example REST Call:
+services.usanpn.org/npn_portal/networks/getPartnerNetworks.xml
+
+
+
+
+getNetworkTree
+
+
+This function will return a list of all the networks, i.e. organizations, with which NPN is associated - represented as a hierarchy and showing the relationships between those networks. Note that networks can appear at any level in the hierarchy and also exhibit multiple inheritance. This hierarchy never goes more than four levels deep. This function requires no input variables and returns a list of each network’s name and id.
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	network
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all network data fields.
+	secondary_network
+	complexType
+	network
+	>=0
+	Logical grouping of all network data field.
+	tertiary_network
+	complexType
+	secondary_network
+	>=0
+	Logical grouping of all network data field.
+	quaternary_network
+	complexType
+	tertiary_network
+	>=0
+	Logical grouping of all network data field.
+	network_id
+	int
+	network
+	1
+	Primary key of the network.
+	network_name
+
+
+	string
+	network
+	1
+	Name of the network.
+
+
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/networks/getNetworkTree.xml
+
+
+
+
+getNetworksForUser
+
+
+This function will return data about networks to which a user has associated his or her self. For input, this takes an identifier for the user. This can be either a person_id for the user, as acquired via the createUser function. Alternatively a consumer key / access token can be used to acquire a user’s information, if you have generate an access token for a user via OAuth.
+For output, it provides the networks’ ids and names.
+
+
+Note that accessing this function requires communicating over HTTPS, rather than standard HTTP. This is for security purposes as sensitive user data is transmitted. Failure to use HTTPS will result in getting an empty data set.
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	person_id
+
+
+	int
+	N
+	0 - 1
+	The person to whom the stations returned belong. This field is used only when you have the person’s id, i.e. you created the person via the web service’s createUser function.
+	access_token
+	string
+	N
+	0 - 1
+	The access token belonging to the user for whom the stations returned belong. This field is used in conjunction with the consumer_key parameter, when the user was retrieved via OAuth.
+	consumer_key
+	string
+	N
+	0 - 1
+	The consumer key of the consumer who prompted the user for the corresponding access token. This is used as a security measure to ensure that access tokens are only used by their respective consumers. This parameter must be used in conjunction with the access_token paramater, and is only relevant when the user was retrieved via OAuth.
+	
+
+
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	network
+
+
+	complexType
+
+
+	n/a
+	>=0
+	Logical grouping of all network data fields.
+	network_id
+	int
+	network
+	1
+	Primary key of the network.
+	network_name
+
+
+	string
+	network
+	1
+	Name of the network.
+
+
+	role_id
+	int
+	network
+	1
+	The user’s role in the network. 1 = admin and 2 = regular user
+	
+
+
+
+Example SOAP Input:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getNetworksForUser>
+                    <ns1:person_id>2364</ns1:person_id>
+            </ns1:getNetworksForUser>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getNetworksForUserResponse>
+                    <ns1:network ns1:network_name="California Phenology Project" ns1:network_id="19" ns1:role_id="2"/>
+                    <ns1:network ns1:network_name="San Francisco Bay Area Network" ns1:network_id="40" ns1:role_id="2"/>
+                    ...
+            </ns1:getNetworksForUserResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Input: 
+
+
+services.usanpn.org/npn_portal/networks/getNetworksForUser.xml?person_id=2364
+
+
+
+
+
+
+getUserNetworkStatus
+
+
+This function will return the status of the user within a given network to which he or she belongs. This information is used to know what privileges the user has within that network. For input, this takes an identifier for the user. This can be either a person_id for the user, as acquired via the createUser function. Alternatively a consumer key / access token can be used to acquire a user’s information, if you have generate an access token for a user via OAuth. You must also provide the network for which to test against the user’s privileges.
+For output, it provides the user’s status - an integer - as follows:
+
+
+null - User does not belong to the network
+1 - User is a network admin; user can create new stations within the network, as well as create and delete plants and animals at stations within the network.
+2 - User is a network user; user can create plants and animals at stations within the network, but not remove them, not add new stations to the network.
+
+
+Note that accessing this function requires communicating over HTTPS, rather than standard HTTP. This is for security purposes as sensitive user data is transmitted. Failure to use HTTPS will result in getting an empty data set.
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	person_id
+
+
+	int
+	N
+	0 - 1
+	The person to whom the stations returned belong. This field is used only when you have the person’s id, i.e. you created the person via the web service’s createUser function.
+	access_token
+	string
+	N
+	0 - 1
+	The access token belonging to the user for whom the stations returned belong. This field is used in conjunction with the consumer_key parameter, when the user was retrieved via OAuth.
+	consumer_key
+	string
+	N
+	0 - 1
+	The consumer key of the consumer who prompted the user for the corresponding access token. This is used as a security measure to ensure that access tokens are only used by their respective consumers. This parameter must be used in conjunction with the access_token paramater, and is only relevant when the user was retrieved via OAuth.
+	network_id
+	int
+	Y
+	1
+	The primary key of the network for which to test the user’s privileges.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	status
+
+
+	int
+	n/a
+	1
+	The user’s status within the network.
+
+
+	
+
+
+
+
+
+Example REST Input: 
+
+
+services.usanpn.org/npn_portal/networks/getUserNetworkStatus.xml?person_id=2364&network_id=62
+
+
+
+
+
+
+GetPhenophases Port
+
+
+getPhenophases
+
+
+This function returns a list of all phenophases used in the database. This requires no input values, and for output, returns a list of each phenophases’ ID, name, short name, and associated color.
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	phenophase
+
+
+	complexType
+	n/a
+	>= 1
+	Logical grouping of phenophase data fields.
+
+
+	phenophase_id
+	int
+	phenophase
+	1
+	The primary key of the phenophase.
+	phenophase_name
+	string
+	phenophase
+	1
+	The name of the phenophase. This is a terse, but descriptive name.
+	phenophase_category
+
+
+	string
+	phenophase
+	1
+	The type of the phenophase, e.g. ‘Flowers’, or ‘Leaves’. It’s often useful to group phenophases by their types.
+	color
+	string
+	phenophase
+	1
+	The suggested color coding for the phenophase; based on it’s type. This is useful in graphs and map legends.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPhenophases />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPhenophasesResponse>
+      <ns1:phenophase ns1:phenophase_id="56"
+      ns1:phenophase_name="First leaf"
+      ns1:phenophase_category="Leaf out" />
+      <ns1:phenophase ns1:phenophase_id="57"
+      ns1:phenophase_name="75% leaf elongation"
+      ns1:phenophase_category="Leaf elo" />
+      ...
+    </ns1:getPhenophasesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getPhenophases.xml
+
+
+getPhenoclasses
+This function returns a list of all phenoclasses used in the database.
+
+
+https://services.usanpn.org/npn_portal/phenophases/getPhenoClasses.json
+
+
+getPhenoclass
+This function returns a phenoclass from the database.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	pheno_class_id
+
+
+	int
+	N
+	>=0
+	The unique identifier of the phenoclass.
+	
+
+https://services.usanpn.org/npn_portal/phenophases/getPhenoClass.json?pheno_class_id=8
+
+
+getPhenophaseDetails
+
+
+This function returns additional information about phenophases that add clarity to the methods and definitions around those phenophases. This function allows input to request information about specific phenophases, or by omitting a phenophase id, it will return information about all phenophases.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	phenophase_id
+
+
+	int
+	N
+	>=0
+	The unique identifier of the phenophase for which to return information. This variable is in place for backwards compatibility. The ids input variable is an easier method to request phenophases by their unique identifiers.
+	ids
+	string
+	N
+	0-1
+	Comma-separated list of unique phenophase identifiers for which to return additional information.
+	
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	phenophase
+
+
+	complexType
+	n/a
+	>= 1
+	Logical grouping of phenophase data fields.
+
+
+	phenophase_id
+	int
+	phenophase
+	1
+	The primary key of the phenophase.
+	phenophase_description
+	string
+	phenophase
+	1
+	A descriptive phrase for the phenophase.
+	definition_ids
+
+
+	string
+	phenophase
+	1
+	Comma separated list of definition ids which have historically been associated with this phenophase.
+	phenophase_names
+	string
+	phenophase
+	1
+	Comma separated list of names  which have historically been associated with this phenophase.
+	phenophase_revision_comments
+	string
+	phenophase
+	1
+	Comma separated list of descriptions explaining the context for changes to the phenophase’s name or description.
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getPhenophaseDetails.xml?ids=75,323
+getPhenophaseDefinitionDetails
+
+
+This function returns information about phenophase definitions, or the specific wording used to describe phenophases. This function takes no input, and returns a complete list of all phenophase definitions
+
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	phenophase_definition
+
+
+	complexType
+	n/a
+	>= 1
+	Logical grouping of phenophase definition data fields.
+
+
+	definition_id
+
+
+	int
+	phenophase_definition
+	1
+	The primary key of the phenophase definition.
+	dataset_id
+
+
+	int
+	phenophase_definition
+	1
+	The unique identifier of the dataset to which the definition is specific, where applicable.
+	phenophase_id
+
+
+
+
+	int
+	phenophase_definition
+	1
+	The identifier of the phenophase to which the definitions is associated.
+	phenophase_name
+
+
+	string
+	phenophase_definition
+	1
+	The name this definition uses to describe the phenophase to which it’s associated.
+	definition
+	string
+	phenophase_definition
+	1
+	The definition of the phenophase.
+	start_date
+	string
+	phenophase_definition
+	1
+	The beginning date for which the definitions is/was applicable to the phenophase.
+	end_date
+	string
+	phenophase_definition
+	1
+	The last date for which the definitions is/was applicable to the phenophase.
+	comments
+	string
+	phenophase_definition
+	1
+	Provides additional context regarding the implementation of the definition. 
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getPhenophaseDefinitionDetails.xml
+
+
+getPhenophasesForSpecies
+
+
+This function will return a list of all the phenophases used by a set of species. These phenophases are susceptible to change over time, so a date can also be provided to give a specific time frame, or a complete catalogue of phenophases can be returned. As input, this takes a list of species IDs, and a date. The date specifies which phenophases should be returned for each species, as noted above. Finally, the last input parameter is a flag which if set to true, will ignore the date parameter if present, and instead return a list of all phenophases that each species has ever used. This function will return a 2-D array. The first level of the array contains each species’ ID and name. The second level of the array contains all the phenophase information associated with each species, including the phenophases’ ID, name, category, definition, additional definition, color, and sequence number. Note that the additional definition will be different for different species, i.e. two species can have the same phenophase, but different ‘additional definitions’. The same is also true for the sequence number and abundance data. 
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	species_id
+
+
+	int
+	Y
+	>=1
+	The species id(s) for which to return phenophase information.
+	date
+	string
+	N
+	0 - 1
+	The date for which to find the applicable phenophase information for each species. This is necessary since phenophase assignments can change for a species over time.
+	return_all
+	boolean
+	N
+	0 - 1
+	Boolean flag indicating whether or not to return all phenophase for each species, irrespective of the data supplied. Defaults to false.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	species_list
+
+
+
+
+	Array
+	n/a
+	1
+	Array of all species and their respective phenophases.
+
+
+	species_id
+
+
+	int
+	species_list
+	1
+	The primary key of the species. This should match one of the species_ids passed into the function.
+	species_name
+	string
+	species_list
+	1
+	Common name of the species; useful as a reference.
+	phenophases
+	Array
+	species_list
+	>=1
+	Array of phenophases associated with the given species.
+	phenophase_id
+
+
+	int
+	phenophases
+	1
+	Primary key of the phenophase.
+	phenophase_name
+
+
+	string
+	phenophases
+	1
+	The name of the phenophase. This is a terse, but descriptive name.
+	phenophase_category
+
+
+	string
+	phenophases
+	1
+	The type of the phenophase, e.g. ‘Flowers’, or ‘Leaves’. It’s often useful to group phenophases by their types.
+	phenophase_definition
+
+
+	string
+	phenophases
+	1
+	A much more detailed description of the phenophase; what’s entailed in observing or finding the phenophase.
+	phenophase_additional_definition
+
+
+	string
+	phenophase
+	1
+	Additional details about the phenophase in the context of the species to which its associated. Usually appended to the phenophase_definition.
+	color
+	string
+	phenophase
+	1
+	The suggested color coding for the phenophase; based on it’s type. This is useful in graphs and map legends.
+	seq_num
+
+
+	int
+	phenophase
+	1
+	The order in which this phenophase should appear in lists relative to other phenophases for the same species.
+	abundance_category
+	int
+	phenophase
+	1
+	The primary key of the abundance category associated with this phenophase - for this species. If the species-phenophase doesn’t use categorical abundance, then this value equals -1.
+	raw_abundance
+	boolean
+	phenophase
+	1
+	Boolean flag indicating whether or not this species-phenophase uses raw abundance.
+	
+
+
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPhenophasesForSpecies>
+      <ns1:species_id>7</ns1:species_id>
+      <ns1:species_id>3</ns1:species_id>
+      <ns1:date>2011-02-25</ns1:date>
+      <ns1:return_all>false</ns1:return_all>
+    </ns1:getPhenophasesForSpecies>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getPhenophasesForSpeciesResponse>
+                    <ns1:species_list>
+                            <ns1:species_id>288</ns1:species_id>
+                            <ns1:species_name>bumblebee</ns1:species_name>
+                            <ns1:phenophases ns1:phenophase_id="327" ns1:phenophase_name="Active adults" ns1:phenophase_category="Activity" ns1:phenophase_definition="One or more adults are seen moving about or at rest." ns1:phenophase_additional_definition="" ns1:color="Brown1" ns1:seq_num="10" ns1:abundance_category="-1" ns1:raw_abundance="true"/>
+                            <ns1:phenophases ns1:phenophase_id="312" ns1:phenophase_name="Flower visitation" ns1:phenophase_category="Activity" ns1:phenophase_definition="One or more individuals are seen visiting flowers or flying from flower to flower. If possible, record the name of the plant or describe it in the comments field." ns1:phenophase_additional_definition="Also include observations of bumblebee individuals with a pollen basket containing pollen on their leg, even if they are seen away from flowers." ns1:color="Brown1" ns1:seq_num="20" ns1:abundance_category="-1" ns1:raw_abundance="true"/>
+                            ...
+                    </ns1:species_list>
+                    <ns1:species_list>
+                            <ns1:species_id>289</ns1:species_id>
+                            <ns1:species_name>oneseed juniper</ns1:species_name>
+                            <ns1:phenophases ns1:phenophase_id="388" ns1:phenophase_name="Pollen cones" ns1:phenophase_category="Pollen cones" ns1:phenophase_definition="One or more fresh male pollen cones (strobili) are visible on the plant. Cones have overlapping scales that are initially tightly closed, then spread apart to open the cone and release pollen. Do not include wilted or dried cones that have released all of their pollen but remain on the plant." ns1:phenophase_additional_definition="" ns1:color="Green2" ns1:seq_num="70" ns1:abundance_category="36" ns1:raw_abundance="false"/>
+                            <ns1:phenophases ns1:phenophase_id="399" ns1:phenophase_name="Open pollen cones" ns1:phenophase_category="Pollen cones" ns1:phenophase_definition="One or more open fresh male pollen cones (strobili) are visible on the plant. Cones are considered 'open' when the scales have spread apart to release pollen. Do not include wilted or dried cones that have released all of their pollen but remain on the plant." ns1:phenophase_additional_definition="" ns1:color="Green2" ns1:seq_num="80" ns1:abundance_category="33" ns1:raw_abundance="false"/>
+                            ...
+                            
+                    </ns1:species_list>
+                    ...
+            </ns1:getPhenophasesForSpeciesResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getPhenophasesForSpecies.xml?species_id[0]=7&species_id[1]=3&date=2011-02-25&return_all=false
+
+
+getPhenophasesUpdateDate
+This function will return the last date which the information in the phenophase table was changed. This would feasibly allow for a consumer of the service to cache locally information about phenophases, relying on this function, with a much smaller payload, to inform it of possible changes. This function requires no input, and returns only a date value.
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	update_date
+
+
+
+
+	string
+
+
+	n/a
+	1
+	Last date any information regarding any of the phenophases in the NPN database was updated. In the format of YYYY-MM-DD.
+	
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPhenophasesUpdateDate />
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:getPhenophasesUpdateDateResponse>
+      <ns1:update_date>2009-03-04</ns1:update_date>
+    </ns1:getPhenophasesUpdateDateResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getPhenophasesUpdateDate.xml
+
+
+getAbundanceCategory
+
+
+This function will return a description of an abundance category along with a complete description of all of the valid values which can be provided for the abundance category. For input this function requires the id of the category in question. It returns the category’s name, description, and an array of each of the valid values, and their subsequent ids, names, and descriptions.
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	category_id
+
+
+	int
+	Y
+	1
+	The id of the category for which to retrieve data.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	category_name
+
+
+	string
+	n/a
+	1
+	The name of the category.
+
+
+	category_description
+	string
+	n/a
+	1
+	A much more detailed description of the category.
+	category_values
+	Array
+	n/a
+	>=1
+	Array of the valid value for this category.
+	value_id
+	int
+	category_values
+	1
+	The primary key of the value. When providing abundance data for an observation, this is the value that would be passed in to indicate the abundance for a phenophase which uses categorical abundance.
+	value_name
+	string
+	category_values
+	1
+	A short label for the value. This is what should be displayed for values appearing in a list of possible values.
+	value_description
+	string
+	category_values
+	1
+	A more detailed description of what the value means. This is only useful in a few limited cases where the value_name is not self-explanatory.
+	
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getAbundanceCategory>
+                    <ns1:category_id>13</ns1:category_id>
+            </ns1:getAbundanceCategory>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getAbundanceCategoryResponse>
+                    <ns1:category_name>Leaf size</ns1:category_name>
+                    <ns1:category_description>What proportion of full size are most leaves?</ns1:category_description>
+                    <ns1:category_values ns1:value_id="31" ns1:value_description="" ns1:value_name="Less than 25%"/>
+                    <ns1:category_values ns1:value_id="27" ns1:value_description="" ns1:value_name="25-49%"/>
+                    <ns1:category_values ns1:value_id="28" ns1:value_description="" ns1:value_name="50-74%"/>
+                    ...
+            </ns1:getAbundanceCategoryResponse>
+    </env:Body>
+</env:Envelope>
+
+
+
+
+Example REST Input: 
+
+
+services.usanpn.org/npn_portal/phenophases/getAbundanceCategory.xml?category_id=15
+
+
+
+
+getAbundanceCategories
+
+
+This function will return a description of all abundance categories along with a complete description of all of the valid values which can be provided for each abundance category. This function requires no input. It returns an array of each category containing: the category’s name, description, and an array of each of the valid values for that category, and their subsequent ids, names, and descriptions.
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	category
+	Array
+	n/a
+	>=1
+	Array containing each of the abundance categories.
+	category_name
+
+
+	string
+	category
+	1
+	The name of the category.
+
+
+	category_description
+	string
+	category
+	1
+	A much more detailed description of the category.
+	category_values
+	Array
+	category
+	>=1
+	Array of the valid value for this category.
+	value_id
+	int
+	category_values
+	1
+	The primary key of the value. When providing abundance data for an observation, this is the value that would be passed in to indicate the abundance for a phenophase which uses categorical abundance.
+	value_name
+	string
+	category_values
+	1
+	A short label for the value. This is what should be displayed for values appearing in a list of possible values.
+	value_description
+	string
+	category_values
+	1
+	A more detailed description of what the value means. This is only useful in a few limited cases where the value_name is not self-explanatory.
+	
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getAbundanceCategories/>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:getAbundanceCategoriesResponse>
+                    <ns1:category>
+                            <ns1:category_id>10</ns1:category_id>
+                            <ns1:category_name>Frog vocalizing</ns1:category_name>
+                            <ns1:category_description>What is the intensity of vocalizing?</ns1:category_description>
+                            <ns1:category_values ns1:value_id="20" ns1:value_description="There is space between calls and individuals can be counted." ns1:value_name="Single calls"/>
+                            <ns1:category_values ns1:value_id="21" ns1:value_description="Calls of individuals can be distinguished but there is some overlapping of calls." ns1:value_name="Overlapping calls"/>
+                            ...
+                    </ns1:category>
+                    <ns1:category>
+                            <ns1:category_id>11</ns1:category_id>
+                            <ns1:category_name>Breaking leaf buds</ns1:category_name>
+                            <ns1:category_description>How many buds are breaking?</ns1:category_description>
+                            <ns1:category_values ns1:value_id="32" ns1:value_description="" ns1:value_name="Less than 3"/>
+                            <ns1:category_values ns1:value_id="33" ns1:value_description="" ns1:value_name="3 to 10"/>
+                            ...
+                    </ns1:category>
+                    ...
+            </ns1:getAbundanceCategoriesResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Input: 
+
+
+services.usanpn.org/npn_portal/phenophases/getAbundanceCategories.xml
+
+
+getSpeciesProtocolDetails
+This function will return a list of species protocol relationships. Species can be associated with different protocols, or suites of phenophases, over time and this will provide a complete list of all such relationships and the relevant periods of time. This function requires no input variables.
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	dataset_id
+
+
+
+
+	int
+
+
+	n/a
+	1
+	Identifier of the dataset to which the species-protocol relationship belongs, when applicable. A null value indicates this relationship is part of the standard NPN system.
+	species_id
+	int
+	n/a
+	1
+	The  unique identifier of the species to which this relationship pertains.
+	protocol_id
+	int
+	n/a
+	1
+	The unique identifier of the protocol to which this relationship pertains.
+	start_date
+	string
+	n/a
+	1
+	The first date for which this relationship was active.
+	end_date
+	string
+	n/a
+	1
+	The last date for which this relationship was active. A null value indicates that the relationship is still currently active.
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophasesgetSpeciesProtocolDetails.xml
+
+
+getProtocolDetails
+This function will return a list of protocols, or suites of phenophases, used to map phenophases to species. This function required no input parameters and returns a complete list of all such protocols.
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	protocol_id
+
+
+
+
+	int
+
+
+	n/a
+	1
+	Unique identifier of the protocol.
+	protocol_name
+	string
+	n/a
+	1
+	The name provided for the protocol. This is more of a machine readable name.
+	primary_name
+	string
+	n/a
+	1
+	The human readable title for the protocol.
+	secondary_name
+	string
+	n/a
+	1
+	A secondary human readable name for the protocol, to provide additional context.
+	phenophase_list
+	string
+	n/a
+	1
+	Comma-separated list of phenophase ids which are mapped to this protocol.
+	protocol_comments
+	string
+	n/a
+	1
+	Additional comments regarding the protocols implementation.
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getProtocolDetails.xml
+
+
+getSecondaryPhenophaseDetails
+This function will return a list of secondary phenophase definitions. These secondary definitions are contextual to a specific species and provide additional descriptions of that phenophase in relation to the species as well as specified the abundance type used. This function takes no input and returns a list of all such definitions.
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	sspi_id
+
+
+
+
+	int
+
+
+	n/a
+	1
+	The unique identifier for this secondary definition.
+	phenophase_id
+	int
+	n/a
+	1
+	The unique identifier of the phenophase to which this entity pertains.
+	species_id
+	int
+	n/a
+	1
+	The unique identifier of the species to which this entity pertains.
+	additional_definition
+	string
+	n/a
+	1
+	Additional details concerning the phenophase as it relates to the species.
+	abundance_category
+	int
+	n/a
+	1
+	The unique identifier for the abundance category used by this phenophase for this species.
+	effective_datetime
+	string
+	n/a
+	1
+	The first date for which this secondary definition was active.
+	deactivation_datetime
+	string
+	n/a
+	1
+	The last date for which this secondary definition was active.Null or empty values indicate that the secondary definition is still in use.
+	
+
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/phenophases/getSecondaryPhenophaseDetails.xml
+
+
+
+
+CreateUser Port
+
+
+CreateUser
+This function is used to create users in the NPDb which can then be associated with other entities like stations, observations, etc. This function requires the user’s first name, last name, email, and the consumer key of the requesting application. It will return the user’s person_id, password, and a response code indicating success or failure.
+Note that the client should expect to capture the user_id and user_pw, as this information is required in other input transactions to authenticate messages sent to the service.
+Also note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	f_name
+
+
+	string
+	Y
+	1
+	The user’s first name.This string can consist of letters, numbers, apostrophes, dashes,
+periods, and spaces. It must also be 64 characters or less.
+	l_name
+	string
+	Y
+	1
+	The user’s last name. This string can consist of letters, numbers, apostrophes, dashes, periods, and spaces. It must also be 64 characters or less.
+	email
+	string
+	Y
+	1
+	The user’s email. This must be in a valid email format.
+	consumer_key
+	string
+	Y
+	1
+	The consumer key of the requesting service.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	n/a
+	1
+	The primary key of the created user. If the user failed to be created, this is set to null.
+
+
+	user_pw
+	string
+	n/a
+	1
+	The password of the create user. If the user failed to be created, this is set to null.
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:createUser>
+      <ns1:f_name>John</ns1:f_name>
+      <ns1:l_name>Doe</ns1:l_name>
+      <ns1:email>example@yahoo.com</ns1:email>
+      <ns1:consumer_key>XYZ</ns1:consumer_key>
+    </ns1:createUser>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+
+
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:createUserResponse>
+      <ns1:user_id>X</ns1:user_id>
+      <ns1:user_pw>
+      password</ns1:user_pw>
+      <ns1:response_messages>
+        <ns1:message>User successfully created</ns1:message>
+      </ns1:response_messages>
+      <ns1:response_code>1</ns1:response_code>
+    </ns1:createUserResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/createUser/createUser.xml?f_name=John&l_name=Doe&email=example@yahoo.com&consumer_key=XYZ
+
+
+CreateStation Port
+
+
+createStation
+This function is used to create stations which can then have individuals associated with them. For input, this takes valid user information - either a user id and password or an access token and consumer key. In addition, it requires a station name, the latitude and longitude of the location, and optionally can specify the elevation and datum of the coordinates.
+It returns the primary key of the created station, along with a series of success or failure message and a response code. Note that the consumer would need to capture the stationID for future use in the createIndividual function. 
+
+
+Also note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	station_name
+	string
+	Y
+	1
+	A unique name for the station. To be provided by the user. A user cannot use a station name more than once. This name can consist of letters, numbers, apostrophes, dashes, periods, and spaces. It must also be 64 characters or less.
+
+
+	latitude
+	string
+	Y
+	1
+	Latitude location of the station, on a global coordinate system. This must be a string, and be represented to six decimal places.
+
+
+	longitude
+	string
+	Y
+	1
+	Longitude location of the station, on a global coordinate system. This must be a string, and be represented to six decimal places.
+	network_id
+	int
+	N
+	0-1
+	The network to which to associate this station. To associate a station to a network, the user specified must be an administrator of the network.
+	elevation
+	float
+	N
+	0-1
+	The elevation of the station. This can be omitted in which case the elevation will be generated based on USGS records.
+	datum
+	string
+	N
+	0-1
+	The datum used for the coordinates. This is optional and will default to ‘WGS84’.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station_id
+
+
+	int
+	n/a
+	1
+	The primary key of the created station. null if station was not created successfully.
+
+
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:createStation>
+      <ns1:user_id>2364</ns1:user_id>
+      <ns1:user_pw>XXXX</ns1:user_pw>
+      <ns1:station_name>Test Station 2</ns1:station_name>
+      <ns1:latitude>42.000000</ns1:latitude>
+      <ns1:longitude>42.000000</ns1:longitude>
+      <ns1:elevation>800</ns1:elevation>
+      <ns1:network_id>15</ns1:network_id>
+    </ns1:createStation>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+
+
+
+
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
+xmlns:ns1="http://usanpn.service.org/types">
+  <SOAP-ENV:Body>
+    <ns1:createStationResponse>
+      <ns1:response_messages>
+        <ns1:message>User Credentials not valid</ns1:message>
+      </ns1:response_messages>
+      <ns1:response_code>0</ns1:response_code>
+    </ns1:createStationResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope> 
+Example REST Call:
+services.usanpn.org/npn_portal/createStation/createStation.xml?user_id=2364&user_pw=XXXX&station_name=Test%20Station%202&latitude=42.00000&longitude=42.000000&elevation=800.00&datum=
+
+
+
+
+addUserPublicStation
+This function is used to add existing users to existing public stations. For input, this takes valid user information - either a user id and password or an access token and consumer key. In addition, it requires the station id of a valid public station
+It returns the primary key of the station the user was associated with, along with a series of success or failure message and a response code. 
+
+
+Also note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	station_id
+	int
+	Y
+	1
+	The id of the public station to which the user should be associated.
+
+
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	station_id
+
+
+	int
+	n/a
+	1
+	The primary key of the station the user was associated with.
+
+
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+Example SOAP Input:
+<SOAP-ENV:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:addUserPublicStation>
+                    <ns1:access_token>...</ns1:access_token>
+                    <ns1:consumer_key>...</ns1:consumer_key>
+                    <ns1:station_id>1330</ns1:station_id>
+            </ns1:addUserPublicStation>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+
+
+Example SOAP Output:
+<SOAP-ENV:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <SOAP-ENV:Body>
+            <ns1:addUserPublicStationResponse>
+                    <ns1:station_id>1330</ns1:station_id>
+                    <ns1:response_messages>
+                            <ns1:message>User successfully associated with public station.</ns1:message>
+                    </ns1:response_messages>
+                    <ns1:response_code>1</ns1:response_code>
+            </ns1:addUserPublicStationResponse>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+Example REST Call:
+services.usanpn.org/npn_portal/createStation/addUserPublicStation.xml?access_token=QNrKcNPj5VoGcBzM5Kyr5yDLLEh2iZZY&consumer_key=WkXcxu8rqEhsKksv8dJpi2KFyb7Xswwn&station_id=1330
+
+
+
+
+CreateIndividual Port
+
+
+
+
+createIndividual
+
+
+This function is used to create individuals which can then have observations made about them. Individuals can be one of two things: a specific plant at a specific location, or an abstract singleton representing the presence of a particular species of animal within a specific location. A user and a station are required to create an individual, as per the createUser and createStation functions, respectively. If you don’t have a user id and password available, an access token can be acquired for existing users, via the NPN OAuth provider. See Appendix B for details.
+
+
+ 
+To invoke this function, you must provide valid user information - either a user id and password or an access token and consumer key - as well as a name for the individual, the primary key of the species to which the individual belongs, and the primary key of the station at which the individual resides. It returns the primary key of the created individual, along with a series of success or failure message and a response code. Note that the consumer would need to capture the individualID for future use in the enterObservation function.
+
+
+Also note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+
+
+
+
+
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	species_id
+	int
+	Y
+	1
+	An identifier for the species. This can be either the species_id - primary key - of the species, or the ITIS number associated with it.
+
+
+	species_num
+	int
+	Y
+	1
+	See species_id input parameter. This input parameter is kept for backwards compatibility but species_id is preferred. If both are provided in a single request, then preference is given to species_id.
+	station_id
+	int
+	Y
+	1
+	The primary key of the station at which the individual resides. This station must belong to the provided user.
+
+
+	individual_name
+	string
+	Y
+	1
+	A unique name for the individual. No two individuals at the same station may share a name. This name can consist of letters, numbers, apostrophes, dashes, periods, and spaces. It must also be 48 characters or less.
+
+
+	is_wild
+	boolean
+	N
+	0-1
+	Optional boolean indicating whether or not the plant is domesticated or not. Not a valid field for animals.
+	is_watered
+	boolean
+	N
+	0-1
+	Optional boolean indicating if the plant receives water via human intervention. Not a valid field for animals.
+	is_fertilized
+	boolean
+	N
+	0-1
+	Optional boolean indicating if the plant received additional food via human intervention. Not a valid field for animals.
+	shade_status
+	string
+	N
+	0-1
+	Optional field indicating the amount of sun the planteceives most of the time. Possible valid an rswers can be found via the getShadeStatuses function. Not a valid field for animals.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	individual_id
+
+
+	int
+	n/a
+	1
+	The primary key of the created individual. null if individual was not created successfully.
+
+
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:createIndividual>
+                    <ns1:access_token>XXXX</ns1:access_token>
+                    <ns1:consumer_key>XXXX</ns1:consumer_key>
+                    <ns1:station_id>2338</ns1:station_id>
+                    <ns1:species_num>3</ns1:species_num>
+                    <ns1:individual_name>Test Plant</ns1:individual_name>
+                    <ns1:is_watered>false</ns1:is_watered>
+                    <ns1:shade_status>Half shade</ns1:shade_status>
+            </ns1:createIndividual>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:createIndividualResponse>
+                    <ns1:individual_id>17936</ns1:individual_id>
+                    <ns1:response_messages>
+                            <ns1:message>Station Species Individual successfully created</ns1:message>
+                    </ns1:response_messages>
+                    <ns1:response_code>1</ns1:response_code>
+            </ns1:createIndividualResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/createIndividual/createIndividual.xml?user_id=2983&user_pw=XXXX&access_token=XXXX&station_id=5122&species_num=3individual_name=A%20Tree
+
+
+
+
+EnterObservation Port
+
+
+enterObservation
+
+
+This function is used to enter observations in the database. Observations are representations of the absence or presence of a particular behavior on a particular date for a particular plant or animal. Ideally, when providing observations for an individual you should provide one observation for every phenophase associated with the individual, for each day. For example, if an individual has ten phenophases, then for every day for which data is provided, ten observations should be submitted. The enterObservationSet helps facilitate this practice.
+
+
+Submitting an observation requires a valid user, and a valid individual for that user. If you don’t have a user id and password available, an access token can be acquired for existing users, via the NPN OAuth provider. See Appendix B for details.
+ 
+To invoke this function, you must provide valid user information. Also, the individual must belong to the provided user. Finally, the phenophase ID must belong to a phenophase associated with the individual’s species type, for the date provided. 
+
+
+An observation can be updated, by providing identical information, with a different observation_extent value.
+
+
+Also note that this function may only be accessed via HTTPS since it transmitts secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	phenophase_id
+	int
+	Y
+	1
+	The primary key of the phenophase for which the observation is about, for the provided individual. The phenophase must be valid for the species of the individual, on the provided date. This can be confirmed via the getPhenophasesForIndividual function.
+
+
+	individual_id
+	int
+	Y
+	1
+	The primary key of the individual which the observation is about. The individual must reside at a station to which the user has access, i.e. either a station the user created, or a station that belongs to the same network as the user.
+
+
+	observation_date
+	string
+	Y
+	1
+	The date on which the observation was made. Cannot be set in the future. Must be in the format of YYYY-MM-DD.
+	observation_extent
+	int
+	Y
+	1
+	The value of the observation - indicates whether or not the user observed the phenophase. Valid values are: 1 - the phenophase was observed; 0 - the phenophase was not observed; -1 - user wasn’t sure whether or not hte phenophase was observed. 
+	observation_comment
+	string
+	N
+	0-1
+	Optional field allowing for free form entry of additional details concerning the observation.
+	abundance_value_id
+	int
+	N
+	0-1
+	Optional field allowing for the input of categorical abundance data. Should be set to the primary ke of an abundance value. Whether or not the phenophase allows for categorical abundance on the provided date, as well as possible valid values for this field can be retreived via the getPhenophasesForSpecies and getAbundanceCategory functions respectively.
+	raw_abundance_value
+	int
+	N
+	0-1
+	Optional field allowing for the input of raw abundance data. Must be a positive integer. Whether or not the phenophase allows for raw abundance on the provided date can be retreived via the getPhenophasesForSpecies function.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	observation_id
+
+
+	int
+	n/a
+	1
+	The primary key of the created or updated observation. null if observation was not created successfully.
+
+
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:enterObservation>
+                    <ns1:user_id>2364</ns1:user_id>
+                    <ns1:user_pw>XXXX</ns1:user_pw>
+                    <ns1:phenophase_id>390</ns1:phenophase_id>
+                    <ns1:individual_id>11210</ns1:individual_id>
+                    <ns1:observation_date>2011-06-16</ns1:observation_date>
+                    <ns1:observation_extent>1</ns1:observation_extent>
+                    <ns1:raw_abundance_value>3</ns1:raw_abundance_value>
+            </ns1:enterObservation>
+    </env:Body>
+</env:Envelope>
+
+
+
+
+
+
+Example SOAP Output:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:enterObservationResponse>
+                    <ns1:response_messages>
+                            <ns1:message>Raw abundance is not valid for that species/date.</ns1:message>
+                    </ns1:response_messages>
+                    <ns1:response_code>0</ns1:response_code>
+            </ns1:enterObservationResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Call:
+services.usanpn.org/npn_portal/enterObservation/enterObservation.xml?user_id=2983&user_pw=XXXX&phenophase_id=182&individual_id=9605&observation_date=2011-02-04&observation_extent=0&observation_comment=This%20is%20a%20test
+
+
+enterObservationSet
+This function behaves exactly as the enterObservation function except that it allows for simultaneous observations to be sent with a single call, using an array of phenophases and an array of extent values, rather than a single phenophase and a single extent as seen in the enterObservation function. These arrays must be sent in parallel sequence, i.e. the phenophase in position 1 of the array matches the extent value in position 1 of the extent array. The return value is also the same as enterObservation except that an array of responses is sent back rather than a single response. This response array is also in the same sequence as the phenophases and extent values, i.e. the first response in the response array corresponds with the first phenophase/extent values in each of their respective arrays. This function is limited in only being able to send a set of observations for a single individual on a single date in any one call.
+Arrays of abundance value ids or raw abundance values can be sent as well. Because not every phenophase can take values of either type, the indices of the abundance value arrays should correspond with the phenophases as per the phenophase_id array, but the array keys of the abundance arrays do not have to be sequential or zero-based, e.g. if you’re submitting two observations, and only the second phenophase has an abundance value, then you need only submit a single abundance_value_id value, with an index of 1 rather than 0.
+Note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	phenophase_id
+	int
+	Y
+	>=1
+	Array of primary keys of the phenophases for which the observations are about, for the provided individual. The phenophases must be valid for the species of the individual, on the provided date. This can be confirmed via the getPhenophasesForIndividual function.
+
+
+	individual_id
+	int
+	Y
+	1
+	The primary key of the individual which the observation is about. The individual must reside at a station to which the user has access, i.e. either a station the user created, or a station that belongs to the same network as the user.
+
+
+	observation_date
+	string
+	Y
+	1
+	The date on which the observation was made. Cannot be set in the future. Must be in the format of YYYY-MM-DD.
+	observation_extent
+	int
+	Y
+	>=1
+	Array of values for the observations - indicates whether or not the user observed the phenophase. Valid values are: 1 - the phenophase was observed; 0 - the phenophase was not observed; -1 - user wasn’t sure whether or not hte phenophase was observed. 
+	observation_comment
+	string
+	N
+	0-1
+	Optional field allowing for free form entry of additional details concerning the observation. This field is more relevant in this function than in enterObservation, as comments are typically made on the order of observations per day, rather than per observation.
+	abundance_value_id
+	int
+	N
+	>=0
+	Optional array allowing for the input of categorical abundance data. Should be set to the primary ke of an abundance value. Whether or not the phenophase allows for categorical abundance on the provided date, as well as possible valid values for this field can be retrieved via the getPhenophasesForSpecies and getAbundanceCategory functions respectively.
+	raw_abundance_value
+	int
+	N
+	>=0
+	Optional array allowing for the input of raw abundance data. Must be a positive integer. Whether or not the phenophase allows for raw abundance on the provided date can be retreived via the getPhenophasesForSpecies function.
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	responses
+	complexType
+	n/a
+	>=1
+	Array of responses. Equal to the number of phenophases/extents provided during input.
+	observation_id
+
+
+	int
+	responses
+	1
+	The primary key of the created or updated observation. null if observation was not created successfully.
+
+
+	response_messages
+
+
+	string
+	responses
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	responses
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:enterObservationSet>
+                    <ns1:user_id>2364</ns1:user_id>
+                    <ns1:user_pw>XXXX</ns1:user_pw>
+                    <ns1:phenophase_id>274</ns1:phenophase_id>
+                    <ns1:phenophase_id>275</ns1:phenophase_id>
+                    ...
+                    <ns1:individual_id>17930</ns1:individual_id>
+                    <ns1:observation_date>2012-04-01</ns1:observation_date>
+                    <ns1:observation_extent>1</ns1:observation_extent>
+                    <ns1:observation_extent>1</ns1:observation_extent>
+                    ...
+                    <ns1:abundance_value_id>32</ns1:abundance_value_id>
+                    <ns1:abundance_value_id>29</ns1:abundance_value_id>
+                    ...
+                    <ns1:observation_comment>This is a test.</ns1:observation_comment>
+            </ns1:enterObservationSet>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://usanpn.service.org/types">
+    <env:Body>
+            <ns1:enterObservationSetResponse>
+                    <ns1:responses>
+                            <ns1:response_messages>
+                                    <ns1:message>Abundance Category Value not valid.</ns1:message>
+                                    ...
+                            </ns1:response_messages>
+                            <ns1:response_code>0</ns1:response_code>
+                    </ns1:responses>
+                    <ns1:responses>
+                            <ns1:response_messages>
+                                    <ns1:message>Abundance Category Value not valid.</ns1:message>
+                                    ...
+                            </ns1:response_messages>
+                            <ns1:response_code>0</ns1:response_code>
+                    </ns1:responses>
+                    ...
+            </ns1:enterObservationSetResponse>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Input:
+
+
+services.usanpn.org/npn_portal/enter_observation/enterObservationSet.xml?user_id=2983&user_pw=XXXX&phenophase_id[0]=183&phenophase_id[1]=184&individual_id=9605&observation_date=2011-02-03&observation_extent[0]=0&observation_extent[1]=1&observation_comment=This_is_a_test
+
+
+
+
+enterObservationDetails
+This function allows for the addition of site-level based details regarding the environment or the user’s time commitment on a per day basis. For example, adding details about snow coverage or the amount of time the user spent searching for animals at the location. 
+To invoke this function, you must provide valid user information. The date and station id must be valid, and the station must be one to which the user has access. Also note that, there must already be existing observations for the provided date, in regards to at least one individual located at the provided station.
+
+
+Observation details can be updated, by providing identical station id and date, with different details
+
+
+Also note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	station_id
+	int
+	Y
+	1
+	The id of the station to which these observation details pertain.
+
+
+	date
+	string
+	Y
+	1
+	The date on which the observation details were made. Cannot be set in the future. Must be in the format of YYYY-MM-DD.
+
+
+	time_travel
+	int
+	N
+	0-1
+	Indicates the number of minutes the user spent traveling to the station.
+	time_observing
+	int
+	N
+	0-1
+	Indicates the number of minutes the user spent observing and recording data at the station.
+	time_searching
+	int
+	N
+	0-1
+	Indicates the number of minutes the user spent searching for animals at the station.
+	snow_ground
+	boolean
+	N
+	0-1
+	Indicates if snow was present on the ground at the station.
+	snow_ground_percent_covered
+	int
+	N
+	0-1
+	Takes an integer between 0 - 100, indicating how much of the ground was covered in snow, as a percent value.
+	snow_canopy
+	boolean
+	N
+	0-1
+	Indicates if snow was present in the tree canopy at the station.
+	animal_search_method
+	string
+	N
+	0-1
+	The ‘method’ the user employed to look for animals at the station. Allowed values are: "Stationary", "Walking", "Area Search", "Incidental"
+	
+
+Output Parameters
+Field Name
+	Data Type
+	Member Of
+	Cardinality
+	Description
+	observation_group_id
+
+
+	int
+	n/a
+	1
+	The primary key of the created or updated observation details. null if entity was not created successfully.
+
+
+	response_messages
+
+
+	string
+	n/a
+	>=1
+	Array of messages explaining the success or failure of the request.
+	response_code
+	int
+	n/a
+	1
+	0 or 1 - indicates whether or not the request was a success.
+	
+
+Example SOAP Input:
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope">
+    <env:Body>
+            <parameters>
+                    <access_token>...</access_token>
+                    <consumer_key>...</consumer_key>
+                    <station_id>9487</station_id>
+                    <date>2014-04-01</date>
+                    <time_travel>15</time_travel>
+                    <time_observing>20</time_observing>
+                    <snow_ground>false</snow_ground>
+            </parameters>
+    </env:Body>
+</env:Envelope>
+
+
+Example SOAP Output:
+
+
+<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <env:Body>
+            <parameters>
+                    <observation_group_id>48378</observation_group_id>
+                    <response_messages>
+                            <xsd:string>Observation Details Successfully updated.</xsd:string>
+                    </response_messages>
+                    <response_code>1</response_code>
+            </parameters>
+    </env:Body>
+</env:Envelope>
+
+
+Example REST Input:
+
+
+services.usanpn.org/npn_portal/enter_observation/enterObservationDetails.xml?access_token=abc123&consumer_key=xyz123&station_id=9487&date=2014-04-01&time_travel=15&time_observing=20&snow_ground=0
+
+
+getObservationDetails
+This function allows for the retrieval of additional site-level based details regarding the environment or the user’s time commitment on a given day. For example, details about snow coverage or the amount of time the user spent searching for animals at the location. This function requires a date and station id as well as user credentials corresponding to the user who recorded observations at the site.
+If the credentials are not valid, or there are no such details for the given date and location, then a null response is returned.
+Also note that this function may only be accessed via HTTPS since it transmits secure user data. Attempting to access this function over standard HTTP will result in a failure response.
+
+
+
+
+Input Parameters
+Field Name
+	Data Type
+	Required
+	Cardinality
+	Description
+	user_id
+
+
+	int
+	N
+	0-1
+	The user’s primary key; the person id. This is generated via the createUser function and used in conjunction with the user’s password.
+	user_pw
+
+
+	string
+	N
+	0-1
+	The user’s password. This is generated via the createUser function and used as an authentication mechanism. This is used in conjunction with the user_id field.
+	access_token
+	string
+	N
+	0-1
+	An access token associated with the user as acquired through OAuth. This must be used in conjunction with the consumer_key of the service that generated the access_token.
+	consumer_key
+	string
+	N
+	0-1
+	The consumer key of the requesting service. To be used in conjunction with the access_token field.
+	station_id
+
+
+	int
+	Y
+	1
+	The primary key of the station for which to return data.
+
+
+	date
+
+
+	string
+	Y
+	1
+	The date for which to return data.
+	
+
+
+
+
+
+Output Parameters
+Field Name
+	Data Type
+	Member of
+	Cardinality
+	Description
+	time_travel
+	int
+	n/a
+	0-1
+	Indicates the number of minutes the user spent traveling to the station.
+	time_observing
+	int
+	n/a
+	0-1
+	Indicates the number of minutes the user spent observing and recording data at the station.
+	time_searching
+	int
+	n/a
+	0-1
+	Indicates the number of minutes the user spent searching for animals at the station.
+	snow_ground
+	boolean
+	n/a
+	0-1
+	Indicates if snow was present on the ground at the station.
+	snow_ground_percent_covered
+	int
+	n/a
+	0-1
+	Takes an integer between 0 - 100, indicating how much of the ground was covered in snow, as a percent value.
+	snow_canopy
+	boolean
+	n/a
+	0-1
+	Indicates if snow was present in the tree canopy at the station.
+	animal_search_method
+	string
+	n/a
+	0-1
+	The ‘method’ the user employed to look for animals at the station. Allowed values are: "Stationary", "Walking", "Area Search", "Incidental"
+	
+
+
+
+Example REST Input:
+
+
+services.usanpn.org/npn_portal/enter_observation/enterObservationDetails.xml?access_token=abc123&consumer_key=xyz123&station_id=9487&date=2014-04-01&time_travel=15&time_observing=20&snow_ground=0
+
+
+
+
+Appendix A: Phenophases
+There are a few things about phenophases, an integral part of the NPDb, which a developer should understand before attempting to write an application that contributes data to the NPDb. First of all, to be clear, a phenophase is defined as an activity performed by a species as part of its lifecycle. This includes things like flowering and leafing in the case of plants, and meta-activities for animals, like finding the dead body of an animal or seeing young animals.
+These phenophases have been defined by the USA-NPN, as a scientifically valid standard for all phenological organizations to use. Hence, there is importance in maintaining the integrity of the, quite specific, definitions. Therefore users of this API are asked to share USA-NPN’s phenophase titles and definitions with their respective end-users, to ensure that accurate data about organisms are contributed to the NPDb.
+Each species is assigned a combination of phenophases, called a protocol. Additionally, each phenophase may have additional, unique information for each species that uses it (called Additional Definition). 
+One of the most important things to note about phenophases is that their definitions can change over time. Likewise, the phenophases assigned to a particular species can change as well. That means, observations entered in the past for an individual, might use a different set of phenophases, depending on that individual’s species. Likewise, in the future, the phenophases for an individual are subject to change.
+It’s important to keep these things in mind, less your app is unable to properly interface with the USA-NPN at some future date, or when entering historical data. This API provides functions to help deal with these obstacles, specifically the GetPhenophasesForSpecies function, which requires a date as well as a species identifier, and the GetSpeciesUpdateDate and GetPhenophasesUpdateDate, which provides clues for when changes are made, helping to facilitate an app wishing to cache phenophase and species information, and reducing the number of calls made to the web service.
+
+
+Appendix B: The USA-NPN OAuth Authentication Provider
+There are essentially two types of consumers of the NPN web services input functions. Those which interact minimally with the NPN - their users providing data to the NPN database, but never creating their own account on the NPN website, or logging into the official Nature’s Notebook interface. The second group, are those consumers that wish to tie their program directly into the accounts of users already using the Nature’s Notebook application. These different models of user management require different means of authenticating users with the service.
+In the first case, since users never create a formal account with the Nature’s Notebook program, they don’t actually know their own password, and must be created through the createUser function. This function generates a unique ID and password for that user which then must be managed by the consumer. The user has no need to know his or her id or password, but the consumer, in all subsequent calls, must authenticate each call by passing in the appropriate user id and password for each user.
+In the second case, the user has created an account with Nature’s Notebook and has their own password which they know. In this case, the consumer must tie into the USA-NPN OAuth authentication provider, by which to obtain a proxy key, an access token, to authenticate the user. Once the access token has been acquired, with the user’s explicit permission, the consumer can make subsequent calls to the service using the access key, instead of a user id and password combination. 
+To authenticate users this way, you must follow the standard OAuth protocols. To do this, you must first have a consumer key and a consumer secret associated with your application. To obtain these thing, follow the steps below:
+1. Visit the USA-NPN website: www.usanpn.org
+2. Login to your account, or create a new account if you don’t have one, using the ‘Login’ button at the top of the page.
+3. Once you have an account, it’s possible for the NPN to assign you a consumer key and secret. Contact the NPN at support@usanpn.org for assistance in setting up a consumer.
+
+
+Once you have the consumer key/secret combination you can configure your app to communicate with the following end points:
+  Access Token URL: http://www-dev.usanpn.org/oauth/access_token
+  Authentication URL: http://www-dev.usanpn.org/oauth/authorize
+  Request Token URL: http://www-dev.usanpn.org/oauth/request_token
+
+
+
+Implementation of an OAuth consumer is out of the scope of this document. However, more information about how to setup an OAuth consumer can be found here:
+http://oauth.net/
+http://hueniverse.com/oauth/
+
+
+
+There’s also a wide array of open source libraries and implementations, which can be used to facilitate development on an OAuth consumer.
