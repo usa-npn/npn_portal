@@ -25,32 +25,42 @@ function buildObservationFilters(p) {
 
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('Species_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('Species_ID IN (?)');
+      params.push(ids);
+    }
   }
 
   if (checkProperty(p, 'station_id')) {
     const ids = arrayWrap(p.station_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('Station_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('Station_ID IN (?)');
+      params.push(ids);
+    }
   }
 
   if (checkProperty(p, 'network_id')) {
     const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('Network_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('Network_ID IN (?)');
+      params.push(ids);
+    }
   }
 
   if (checkProperty(p, 'individual_id')) {
     const ids = arrayWrap(p.individual_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('Individual_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('Individual_ID IN (?)');
+      params.push(ids);
+    }
   }
 
   if (checkProperty(p, 'phenophase_id')) {
     const ids = arrayWrap(p.phenophase_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('Phenophase_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('Phenophase_ID IN (?)');
+      params.push(ids);
+    }
   }
 
   if (checkProperty(p, 'person_id')) {
@@ -58,7 +68,7 @@ function buildObservationFilters(p) {
     params.push(p.person_id);
   }
 
-  if (checkProperty(p, 'state')) {
+  if (checkProperty(p, 'state') && String(p.state).trim()) {
     conditions.push('State = ?');
     params.push(p.state);
   }
@@ -199,30 +209,36 @@ router.all('/get_observations_count', async (req, res) => {
 
     if (checkProperty(p, 'stations')) {
       const ids = arrayWrap(p.stations).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      conditions.push('csd.Site_ID IN (?)');
-      params.push(ids);
+      if (ids.length > 0) {
+        conditions.push('csd.Site_ID IN (?)');
+        params.push(ids);
+      }
     }
 
-    if (checkProperty(p, 'state')) {
+    if (checkProperty(p, 'state') && String(p.state).trim()) {
       conditions.push('csd.State = ?');
       params.push(p.state);
     }
 
     if (checkProperty(p, 'dataset_ids')) {
       const ids = arrayWrap(p.dataset_ids).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      conditions.push('co.Dataset_ID IN (?)');
-      params.push(ids);
+      if (ids.length > 0) {
+        conditions.push('co.Dataset_ID IN (?)');
+        params.push(ids);
+      }
     }
 
-    if (checkProperty(p, 'network')) {
+    if (checkProperty(p, 'network') && String(p.network).trim()) {
       conditions.push('csd.Partner_Group = ?');
       params.push(p.network);
     }
 
     if (checkProperty(p, 'species_id')) {
       const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      conditions.push('csd.Species_ID IN (?)');
-      params.push(ids);
+      if (ids.length > 0) {
+        conditions.push('csd.Species_ID IN (?)');
+        params.push(ids);
+      }
     }
 
     if (checkProperty(p, 'phenophase_category')) {
@@ -526,43 +542,57 @@ router.all('/get_observations', async (req, res) => {
     params.push(p.end_date);
   }
   if (checkProperty(p, 'state')) {
-    const states = arrayWrap(p.state);
-    conditions.push('csd.State IN (?)');
-    params.push(states);
+    const states = arrayWrap(p.state).filter(s => s !== '' && s !== null && s !== undefined);
+    if (states.length > 0) {
+      conditions.push('csd.State IN (?)');
+      params.push(states);
+    }
   }
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('csd.Species_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('csd.Species_ID IN (?)');
+      params.push(ids);
+    }
   }
   if (checkProperty(p, 'station_id')) {
     const ids = arrayWrap(p.station_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('csd.Site_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('csd.Site_ID IN (?)');
+      params.push(ids);
+    }
   }
   if (checkProperty(p, 'individual_id')) {
     const ids = arrayWrap(p.individual_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('csd.Individual_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('csd.Individual_ID IN (?)');
+      params.push(ids);
+    }
   }
   if (checkProperty(p, 'phenophase_id')) {
     const ids = arrayWrap(p.phenophase_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('csd.Phenophase_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('csd.Phenophase_ID IN (?)');
+      params.push(ids);
+    }
   }
   if (checkProperty(p, 'dataset_ids')) {
     const ids = arrayWrap(p.dataset_ids).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('co.Dataset_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('co.Dataset_ID IN (?)');
+      params.push(ids);
+    }
   }
-  if (checkProperty(p, 'kingdom')) {
+  if (checkProperty(p, 'kingdom') && String(p.kingdom).trim()) {
     conditions.push('csd.Kingdom = ?');
     params.push(p.kingdom);
   }
   if (checkProperty(p, 'group_id')) {
     const ids = arrayWrap(p.group_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('co.Observation_Group_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('co.Observation_Group_ID IN (?)');
+      params.push(ids);
+    }
   }
 
   const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -681,31 +711,41 @@ router.all('/get_summarized_data', async (req, res) => {
   const seriesParams = [];
 
   if (checkProperty(p, 'state')) {
-    const states = arrayWrap(p.state);
-    seriesConditions.push('csd.State IN (?)');
-    seriesParams.push(states);
+    const states = arrayWrap(p.state).filter(s => s !== '' && s !== null && s !== undefined);
+    if (states.length > 0) {
+      seriesConditions.push('csd.State IN (?)');
+      seriesParams.push(states);
+    }
   }
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Species_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Species_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
   if (checkProperty(p, 'station_id')) {
     const ids = arrayWrap(p.station_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Site_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Site_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
   if (checkProperty(p, 'individual_id')) {
     const ids = arrayWrap(p.individual_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Individual_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Individual_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
   if (checkProperty(p, 'phenophase_id')) {
     const ids = arrayWrap(p.phenophase_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Phenophase_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Phenophase_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
-  if (checkProperty(p, 'kingdom')) {
+  if (checkProperty(p, 'kingdom') && String(p.kingdom).trim()) {
     seriesConditions.push('csd.Kingdom = ?');
     seriesParams.push(p.kingdom);
   }
@@ -839,26 +879,34 @@ router.all('/get_site_level_data', async (req, res) => {
 
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Species_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Species_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
 
   if (checkProperty(p, 'station_id')) {
     const ids = arrayWrap(p.station_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Site_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Site_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
 
   if (checkProperty(p, 'phenophase_id')) {
     const ids = arrayWrap(p.phenophase_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Phenophase_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Phenophase_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
 
   if (checkProperty(p, 'network_id')) {
     const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    seriesConditions.push('csd.Network_ID IN (?)');
-    seriesParams.push(ids);
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Network_ID IN (?)');
+      seriesParams.push(ids);
+    }
   }
 
   const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
@@ -1142,20 +1190,20 @@ router.all('/get_magnitude_data', async (req, res) => {
 
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    filterConds.push('csd.Species_ID IN (?)'); filterParams.push(ids);
+    if (ids.length > 0) { filterConds.push('csd.Species_ID IN (?)'); filterParams.push(ids); }
   }
   if (checkProperty(p, 'phenophase_id')) {
     const ids = arrayWrap(p.phenophase_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    filterConds.push('csd.Phenophase_ID IN (?)'); filterParams.push(ids);
+    if (ids.length > 0) { filterConds.push('csd.Phenophase_ID IN (?)'); filterParams.push(ids); }
   }
   if (checkProperty(p, 'station_id') || checkProperty(p, 'site_id')) {
     const raw = p.station_id || p.site_id;
     const ids = arrayWrap(raw).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    filterConds.push('csd.Site_ID IN (?)'); filterParams.push(ids);
+    if (ids.length > 0) { filterConds.push('csd.Site_ID IN (?)'); filterParams.push(ids); }
   }
   if (checkProperty(p, 'network_id')) {
     const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    filterConds.push('csd.Network_ID IN (?)'); filterParams.push(ids);
+    if (ids.length > 0) { filterConds.push('csd.Network_ID IN (?)'); filterParams.push(ids); }
   }
 
   const filterWhere = filterConds.length > 0 ? 'AND ' + filterConds.join(' AND ') : '';
@@ -1419,8 +1467,10 @@ router.all('/get_observation_group_details', async (req, res) => {
 
   if (checkProperty(p, 'observation_group_id')) {
     const ids = arrayWrap(p.observation_group_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    conditions.push('Observation_Group_ID IN (?)');
-    params.push(ids);
+    if (ids.length > 0) {
+      conditions.push('Observation_Group_ID IN (?)');
+      params.push(ids);
+    }
   } else if (checkProperty(p, 'ids')) {
     const ids = String(p.ids).split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
     if (ids.length > 0) {
