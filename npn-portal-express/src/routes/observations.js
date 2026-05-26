@@ -395,12 +395,17 @@ router.all('/get_observation_dates', async (req, res) => {
       }
 
       const yr = String(row.year);
-      const positive = row.Dates_Positive
-        ? row.Dates_Positive.split(',').map(d => parseInt(d, 10))
+      let positive = row.Dates_Positive
+        ? row.Dates_Positive.split(',').map(d => parseInt(d, 10)).filter(d => d > 0)
         : [];
-      const negative = row.Dates_Negative
-        ? row.Dates_Negative.split(',').map(d => parseInt(d, 10))
+      let negative = row.Dates_Negative
+        ? row.Dates_Negative.split(',').map(d => parseInt(d, 10)).filter(d => d > 0)
         : [];
+
+      if (positive.length > 0) {
+        const positiveSet = new Set(positive);
+        negative = negative.filter(d => !positiveSet.has(d));
+      }
 
       pheno.years[yr] = { positive, negative };
     }
