@@ -346,7 +346,10 @@ router.all('/get_observation_dates', async (req, res) => {
       ORDER BY csd.Species_ID ASC, ${phenoGroupCol} ASC, \`year\` ASC
     `;
 
-    const [rows] = await npnPool.query(sql, params);
+    const conn = await npnPool.getConnection();
+    await conn.query('SET SESSION group_concat_max_len = 10000000');
+    const [rows] = await conn.query(sql, params);
+    conn.release();
 
     if (!rows || rows.length === 0) {
       return res.json({ error_message: 'No results found' });
