@@ -583,6 +583,13 @@ router.all('/get_observations', async (req, res) => {
       params.push(ids);
     }
   }
+  if (checkProperty(p, 'pheno_class_id')) {
+    const ids = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    if (ids.length > 0) {
+      conditions.push('csd.Pheno_Class_ID IN (?)');
+      params.push(ids);
+    }
+  }
   if (checkProperty(p, 'kingdom') && String(p.kingdom).trim()) {
     conditions.push('csd.Kingdom = ?');
     params.push(p.kingdom);
@@ -746,6 +753,13 @@ router.all('/get_summarized_data', async (req, res) => {
     const ids = arrayWrap(p.phenophase_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     if (ids.length > 0) {
       seriesConditions.push('csd.Phenophase_ID IN (?)');
+      seriesParams.push(ids);
+    }
+  }
+  if (checkProperty(p, 'pheno_class_id')) {
+    const ids = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Pheno_Class_ID IN (?)');
       seriesParams.push(ids);
     }
   }
@@ -917,6 +931,17 @@ router.all('/get_site_level_data', async (req, res) => {
     }
   }
 
+  if (checkProperty(p, 'pheno_class_id')) {
+    const ids = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    if (ids.length > 0) {
+      seriesConditions.push('csd.Pheno_Class_ID IN (?)');
+      seriesParams.push(ids);
+    }
+  }
+
+  const slPhenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
+  const slTaxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
+
   const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
   const params = [startDate, endDate, startDate, endDate, startDate, endDate, ...seriesParams];
 
@@ -961,6 +986,8 @@ router.all('/get_site_level_data', async (req, res) => {
       csd.Kingdom                                                           AS kingdom,
       csd.Phenophase_ID                                                     AS phenophase_id,
       csd.Phenophase_Description                                            AS phenophase_description,
+      csd.Pheno_Class_ID                                                    AS pheno_class_id,
+      csd.Pheno_Class_Name                                                  AS pheno_class_name,
       DAYOFYEAR(sy.first_yes_date)                                          AS first_yes_doy,
       ROUND(UNIX_TIMESTAMP(sy.first_yes_date) / 86400.0 + 2440587.5)       AS first_yes_julian_date,
       IFNULL(DATEDIFF(sy.first_yes_date, pn.prior_no_date), -9999)         AS numdays_since_prior_no,
@@ -1011,10 +1038,12 @@ router.all('/get_site_level_data', async (req, res) => {
     const julianLast = parseInt(r.last_yes_julian_date, 10);
     const daysSince = r.numdays_since_prior_no;
     const daysUntil = r.numdays_until_next_no;
-    const key = `${r.site_id}|${r.species_id}|${r.phenophase_id}`;
+    const phenoKey = slPhenoClassAggregate ? r.pheno_class_id : r.phenophase_id;
+    const speciesKey = (slPhenoClassAggregate && !slTaxonomyAggregate) ? '*' : r.species_id;
+    const key = `${r.site_id}|${speciesKey}|${phenoKey}`;
 
     if (!siteMap.has(key)) {
-      siteMap.set(key, {
+      const entry = {
         site_id: r.site_id,
         latitude: r.latitude,
         longitude: r.longitude,
@@ -1033,7 +1062,12 @@ router.all('/get_site_level_data', async (req, res) => {
         lastJulians: [],
         lastDoys: [],
         lastDaysUntil: [],
-      });
+      };
+      if (slPhenoClassAggregate) {
+        entry.pheno_class_id = r.pheno_class_id;
+        entry.pheno_class_name = r.pheno_class_name;
+      }
+      siteMap.set(key, entry);
     }
 
     const site = siteMap.get(key);
@@ -1089,7 +1123,7 @@ router.all('/get_site_level_data', async (req, res) => {
         seDaysUntil = stdErrSample(site.lastDaysUntil);
       }
 
-      result.push({
+      const item = {
         site_id: site.site_id,
         latitude: site.latitude,
         longitude: site.longitude,
@@ -1102,6 +1136,12 @@ router.all('/get_site_level_data', async (req, res) => {
         kingdom: site.kingdom,
         phenophase_id: site.phenophase_id,
         phenophase_description: site.phenophase_description,
+      };
+      if (site.pheno_class_id !== undefined) {
+        item.pheno_class_id = site.pheno_class_id;
+        item.pheno_class_name = site.pheno_class_name;
+      }
+      Object.assign(item, {
         first_yes_sample_size: nFirst,
         mean_first_yes_year: meanFirstYear,
         mean_first_yes_doy: meanFirstDoy,
@@ -1117,9 +1157,10 @@ router.all('/get_site_level_data', async (req, res) => {
         mean_numdays_until_next_no: meanDaysUntil,
         se_numdays_until_next_no: seDaysUntil,
       });
+      result.push(item);
     }
 
-    result.sort((a, b) => a.site_id - b.site_id || a.species_id - b.species_id || a.phenophase_id - b.phenophase_id);
+    result.sort((a, b) => a.site_id - b.site_id || a.species_id - b.species_id || (a.phenophase_id || 0) - (b.phenophase_id || 0));
 
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
@@ -1218,8 +1259,28 @@ router.all('/get_magnitude_data', async (req, res) => {
     const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     if (ids.length > 0) { filterConds.push('csd.Network_ID IN (?)'); filterParams.push(ids); }
   }
+  if (checkProperty(p, 'pheno_class_id')) {
+    const ids = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    if (ids.length > 0) { filterConds.push('csd.Pheno_Class_ID IN (?)'); filterParams.push(ids); }
+  }
+
+  const phenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
+  const taxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
+
+  const groupByCols = [];
+  if (phenoClassAggregate) {
+    groupByCols.push('csd.Pheno_Class_ID');
+    if (taxonomyAggregate) groupByCols.push('csd.Species_ID');
+  } else {
+    groupByCols.push('csd.Phenophase_ID');
+    groupByCols.push('csd.Species_ID');
+  }
 
   const filterWhere = filterConds.length > 0 ? 'AND ' + filterConds.join(' AND ') : '';
+
+  const extraSelectCols = phenoClassAggregate
+    ? `,\n      csd.Pheno_Class_ID AS pheno_class_id,\n      csd.Pheno_Class_Name AS pheno_class_name`
+    : '';
 
   const sql = `
     SELECT
@@ -1229,7 +1290,7 @@ router.all('/get_magnitude_data', async (req, res) => {
       csd.Common_Name                                                 AS common_name,
       csd.Kingdom                                                     AS kingdom,
       csd.Phenophase_ID                                               AS phenophase_id,
-      csd.Phenophase_Description                                      AS phenophase_description,
+      csd.Phenophase_Description                                      AS phenophase_description${extraSelectCols},
       COUNT(co.Phenophase_Status)                                     AS status_records_sample_size,
       COUNT(DISTINCT csd.Individual_ID)                               AS individuals_sample_size,
       COUNT(DISTINCT csd.Site_ID)                                     AS sites_sample_size,
@@ -1272,8 +1333,8 @@ router.all('/get_magnitude_data', async (req, res) => {
     WHERE co.Phenophase_Status >= 0
       AND co.Observation_Date BETWEEN ? AND ?
       ${filterWhere}
-    GROUP BY ${periodGroupBy}, csd.Phenophase_ID, csd.Species_ID
-    ORDER BY csd.Species_ID, csd.Phenophase_ID, MIN(co.Observation_Date)
+    GROUP BY ${periodGroupBy}, ${groupByCols.join(', ')}
+    ORDER BY ${groupByCols.join(', ')}, MIN(co.Observation_Date)
   `;
 
   // Population SE (as PHP stats_standard_deviation($arr, false))
