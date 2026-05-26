@@ -306,6 +306,17 @@ router.all('/get_observation_dates', async (req, res) => {
       params.push(pIds);
     }
 
+    if (checkProperty(p, 'pheno_class_id')) {
+      const pcIds = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      if (pcIds.length > 0) {
+        whereExtra += ` AND csd.Pheno_Class_ID IN (?)`;
+        params.push(pcIds);
+      }
+    }
+
+    const odPhenoClassAgg = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
+    const phenoGroupCol = odPhenoClassAgg ? 'csd.Pheno_Class_ID' : 'csd.Phenophase_ID';
+
     // HAVING clause for year filter
     const havingParts = years.map(() => '`year` = ?');
     params.push(...years);
@@ -330,9 +341,9 @@ router.all('/get_observation_dates', async (req, res) => {
       LEFT JOIN usanpn2.Protocol_Phenophase ppp ON ppp.Phenophase_ID = csd.Phenophase_ID AND ppp.Protocol_ID = co.Protocol_ID
       WHERE csd.Species_ID IN (?) ${whereExtra}
         AND (co.Phenophase_Status = 1 OR co.Phenophase_Status = 0)
-      GROUP BY csd.Species_ID, csd.Phenophase_ID, YEAR(co.Observation_Date)
+      GROUP BY csd.Species_ID, ${phenoGroupCol}, YEAR(co.Observation_Date)
       HAVING ${havingParts.join(' OR ')}
-      ORDER BY csd.Species_ID ASC, csd.Phenophase_ID ASC, \`year\` ASC
+      ORDER BY csd.Species_ID ASC, ${phenoGroupCol} ASC, \`year\` ASC
     `;
 
     const [rows] = await npnPool.query(sql, params);
@@ -346,23 +357,38 @@ router.all('/get_observation_dates', async (req, res) => {
     for (const row of rows) {
       const sId = row.Species_ID;
       if (!speciesMap[sId]) {
-        speciesMap[sId] = {
+        const entry = {
           species_id: sId,
           common_name: row.Common_Name,
-          phenophases: [],
         };
+        entry[odPhenoClassAgg ? 'pheno_classes' : 'phenophases'] = [];
+        speciesMap[sId] = entry;
       }
       const species = speciesMap[sId];
+      const listKey = odPhenoClassAgg ? 'pheno_classes' : 'phenophases';
 
-      let pheno = species.phenophases.find(p => p.phenophase_id === row.Phenophase_ID);
-      if (!pheno) {
-        pheno = {
-          phenophase_id: row.Phenophase_ID,
-          phenophase_name: row.Phenophase_Name,
-          seq_num: row.Seq_Num,
-          years: {},
-        };
-        species.phenophases.push(pheno);
+      let pheno;
+      if (odPhenoClassAgg) {
+        pheno = species[listKey].find(p => p.pheno_class_id === row.Pheno_Class_ID);
+        if (!pheno) {
+          pheno = {
+            pheno_class_id: row.Pheno_Class_ID,
+            pheno_class_name: row.Pheno_Class_Name,
+            years: {},
+          };
+          species[listKey].push(pheno);
+        }
+      } else {
+        pheno = species[listKey].find(p => p.phenophase_id === row.Phenophase_ID);
+        if (!pheno) {
+          pheno = {
+            phenophase_id: row.Phenophase_ID,
+            phenophase_name: row.Phenophase_Name,
+            seq_num: row.Seq_Num,
+            years: {},
+          };
+          species[listKey].push(pheno);
+        }
       }
 
       const yr = String(row.year);
