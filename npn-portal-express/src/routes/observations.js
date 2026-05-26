@@ -363,8 +363,9 @@ router.all('/get_observation_dates', async (req, res) => {
         const entry = {
           species_id: sId,
           common_name: row.Common_Name,
+          phenophases: [],
         };
-        entry[odPhenoClassAgg ? 'pheno_classes' : 'phenophases'] = [];
+        if (odPhenoClassAgg) entry.pheno_classes = [];
         speciesMap[sId] = entry;
       }
       const species = speciesMap[sId];
