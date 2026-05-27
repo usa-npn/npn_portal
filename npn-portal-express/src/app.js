@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('./logger');
 
 const express = require('express');
 const app = express();
