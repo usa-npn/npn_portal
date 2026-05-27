@@ -86,7 +86,7 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.NPN_PORTAL_PORT || 3005;
 app.listen(PORT, () => {
   console.log(`NPN Portal Express API listening on port ${PORT}`);
 });
