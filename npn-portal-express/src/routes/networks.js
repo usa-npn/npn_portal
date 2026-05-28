@@ -12,6 +12,7 @@ router.all('/get_partner_networks', async (req, res) => {
     const p = req.query;
     const activeOnly = resolveBooleanText(p, 'active_only', false);
 
+    // Matches PHP getPartnerNetworks(): no User_Display filter
     let sql = `
       SELECT DISTINCT
         n.Network_ID,
@@ -20,7 +21,7 @@ router.all('/get_partner_networks', async (req, res) => {
     `;
 
     const joins = [];
-    const conditions = ['n.User_Display = 1'];
+    const conditions = [];
     const params = [];
 
     if (activeOnly) {
@@ -37,31 +38,48 @@ router.all('/get_partner_networks', async (req, res) => {
       params.push(p.member_id);
     }
 
-    if (joins.length > 0) {
-      sql += ' ' + joins.join(' ');
-    }
-
-    sql += ' WHERE ' + conditions.join(' AND ');
-
     if (checkProperty(p, 'network_id')) {
       const networkIds = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-      sql += ` AND n.Network_ID IN (?)`;
-      params.push(networkIds);
+      if (networkIds.length > 0) {
+        conditions.push('n.Network_ID IN (?)');
+        params.push(networkIds);
+      }
     }
 
     if (checkProperty(p, 'search')) {
-      sql += ` AND n.Name LIKE ?`;
+      conditions.push('n.Name LIKE ?');
       params.push(`%${p.search}%`);
     }
 
+    if (joins.length > 0) sql += ' ' + joins.join(' ');
+    if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
     sql += ' ORDER BY n.Name ASC';
 
     const [rows] = await npnPool.query(sql, params);
 
-    const result = rows.map(r => ({
+    let result = rows.map(r => ({
       network_id: r.Network_ID,
       network_name: r.Name,
     }));
+
+    // active_only joins through Cached_Summarized_Data, which drops "no_group_site"
+    // networks (e.g. some LPPs) whose participation isn't recorded by station. The
+    // PHP equivalent merges those back in, then sorts the result by name.
+    if (activeOnly) {
+      const [ngsRows] = await npnPool.query(
+        `SELECT Network_ID, Name
+         FROM usanpn2.Network
+         WHERE no_group_site = 1
+         ORDER BY Name ASC`
+      );
+      const seen = new Set(result.map(r => r.network_id));
+      for (const r of ngsRows) {
+        if (!seen.has(r.Network_ID)) {
+          result.push({ network_id: r.Network_ID, network_name: r.Name });
+        }
+      }
+      result.sort((a, b) => String(a.network_name).localeCompare(String(b.network_name)));
+    }
 
     res.json(result);
   } catch (err) {

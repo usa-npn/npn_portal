@@ -311,8 +311,12 @@ router.all('/get_species_filter', async (req, res) => {
       }
     }
 
-    if (checkProperty(p, 'network_id')) {
-      const networkIds = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    // rnpn sends `network` (singular); PHP API and some clients send `network_id`
+    const networkRaw = checkProperty(p, 'network_id') ? p.network_id
+                     : checkProperty(p, 'network')    ? p.network
+                     : null;
+    if (networkRaw !== null) {
+      const networkIds = arrayWrap(networkRaw).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
       if (networkIds.length > 0) {
         const netClauses = [];
         for (const nid of networkIds) {
@@ -335,8 +339,12 @@ router.all('/get_species_filter', async (req, res) => {
       params.push(p.start_date, p.end_date);
     }
 
-    if (checkProperty(p, 'station_ids')) {
-      const stationIds = arrayWrap(p.station_ids).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    // rnpn sends `station_id` (singular, exploded); PHP API used `station_ids`
+    const stationRaw = checkProperty(p, 'station_ids') ? p.station_ids
+                     : checkProperty(p, 'station_id') ? p.station_id
+                     : null;
+    if (stationRaw !== null) {
+      const stationIds = arrayWrap(stationRaw).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
       if (stationIds.length > 0) {
         conditions.push('csd.Site_ID IN (?)');
         params.push(stationIds);

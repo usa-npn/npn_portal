@@ -5,6 +5,117 @@ const checkProperty = require('../utils/checkProperty');
 const arrayWrap = require('../utils/arrayWrap');
 const resolveBooleanText = require('../utils/resolveBooleanText');
 
+// Climate fields that get auto-enabled when climate_data=1 is requested.
+// Matches PHP generic_observation_search.php $climate_data_selected.
+const CLIMATE_FIELDS = [
+  'tmax_winter', 'tmax_spring', 'tmax_summer', 'tmax_fall', 'tmax', 'tmaxf',
+  'tmin_winter', 'tmin_spring', 'tmin_summer', 'tmin_fall', 'tmin', 'tminf',
+  'prcp_winter', 'prcp_spring', 'prcp_summer', 'prcp_fall', 'prcp',
+  'acc_prcp', 'gdd', 'gddf', 'daylength',
+];
+
+/**
+ * Apply filters common to all download endpoints (matches PHP
+ * generic_observation_search.php). Mutates `conditions`, `params`, and `joins`
+ * in place. Returns nothing.
+ *
+ * Filters handled here:
+ *   - coords (bottom_left_x1/y1, upper_right_x2/y2)
+ *   - genus_id / family_id / order_id / class_id (arrays, csd.*)
+ *   - species_type (LIKE matching against csd.Species_Category)
+ *   - functional_type (csd.Species_Functional_Type IN ...)
+ *   - network_id (joins Cached_Network_Observation; needs `coAlias` to be the
+ *     Cached_Observation alias so we can wire the join). Returns true if
+ *     a network join was added so the caller can include cno in its FROM.
+ */
+function applyCommonDownloadFilters(p, conditions, params, joins, csdAlias = 'csd', coAlias = 'co') {
+  // Bounding-box coords
+  if (
+    checkProperty(p, 'bottom_left_x1') && checkProperty(p, 'bottom_left_y1') &&
+    checkProperty(p, 'upper_right_x2') && checkProperty(p, 'upper_right_y2')
+  ) {
+    const x1 = parseFloat(p.bottom_left_x1);
+    const y1 = parseFloat(p.bottom_left_y1);
+    const x2 = parseFloat(p.upper_right_x2);
+    const y2 = parseFloat(p.upper_right_y2);
+    if ([x1, y1, x2, y2].every(v => !isNaN(v))) {
+      conditions.push(`${csdAlias}.Latitude BETWEEN ? AND ?`);
+      params.push(x1, x2);
+      conditions.push(`${csdAlias}.Longitude BETWEEN ? AND ?`);
+      params.push(y1, y2);
+    }
+  }
+
+  // Taxonomic IDs. Matches PHP precedence (class > order > family > genus
+  // would normally apply, but we only set conditions for whichever the caller
+  // sent — the client is expected to enforce precedence by only sending one).
+  for (const [param, col] of [
+    ['genus_id',  'Genus_ID'],
+    ['family_id', 'Family_ID'],
+    ['order_id',  'Order_ID'],
+    ['class_id',  'Class_ID'],
+  ]) {
+    if (checkProperty(p, param)) {
+      const ids = arrayWrap(p[param]).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      if (ids.length > 0) {
+        conditions.push(`${csdAlias}.${col} IN (?)`);
+        params.push(ids);
+      }
+    }
+  }
+
+  // species_type → Species_Category LIKE matching (OR'd if multiple)
+  if (checkProperty(p, 'species_type')) {
+    const types = arrayWrap(p.species_type).filter(t => t !== '' && t !== null && t !== undefined);
+    if (types.length > 0) {
+      const clauses = types.map(() => `${csdAlias}.Species_Category LIKE ?`);
+      conditions.push(`(${clauses.join(' OR ')})`);
+      for (const t of types) params.push(`%${t}%`);
+    }
+  }
+
+  // functional_type → Species_Functional_Type IN
+  if (checkProperty(p, 'functional_type')) {
+    const types = arrayWrap(p.functional_type).filter(t => t !== '' && t !== null && t !== undefined);
+    if (types.length > 0) {
+      conditions.push(`${csdAlias}.Species_Functional_Type IN (?)`);
+      params.push(types);
+    }
+  }
+
+  // network_id → join a deduped Cached_Network_Observation subquery on Observation_ID.
+  // IDs are int-parsed and NaN-filtered above, so inlining them is safe and lets us
+  // avoid threading another `?` param into the join (which would order-shift the
+  // params relative to the WHERE clause, especially in CTE-based queries).
+  if (checkProperty(p, 'network_id')) {
+    const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    if (ids.length > 0) {
+      joins.push(
+        `INNER JOIN (
+          SELECT DISTINCT Observation_ID
+          FROM usanpn2.Cached_Network_Observation
+          WHERE Network_ID IN (${ids.join(',')})
+        ) cno ON cno.Observation_ID = ${coAlias}.Observation_ID`
+      );
+    }
+  }
+}
+
+/**
+ * Returns the set of additional_field keys the caller asked for, with all
+ * climate columns auto-included if climate_data=1.
+ */
+function resolveAdditionalFields(p) {
+  const requested = checkProperty(p, 'additional_field')
+    ? arrayWrap(p.additional_field).map(f => String(f).toLowerCase())
+    : [];
+  const climateOn = checkProperty(p, 'climate_data') && String(p.climate_data) === '1';
+  if (climateOn) {
+    for (const f of CLIMATE_FIELDS) if (!requested.includes(f)) requested.push(f);
+  }
+  return requested;
+}
+
 /**
  * Build common observation filter conditions and params from query params.
  * Returns { conditions: string[], params: any[] }
@@ -567,6 +678,7 @@ router.all('/get_observations', async (req, res) => {
   const p = req.query;
   const conditions = [];
   const params = [];
+  const extraJoins = [];
 
   if (checkProperty(p, 'start_date')) {
     conditions.push('co.Observation_Date >= ?');
@@ -637,20 +749,21 @@ router.all('/get_observations', async (req, res) => {
     }
   }
 
+  // coords, taxonomic IDs, species_type, functional_type, network_id
+  applyCommonDownloadFilters(p, conditions, params, extraJoins, 'csd', 'co');
+
   const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
   const limitClause = checkProperty(p, 'limit') ? `LIMIT ${parseInt(p.limit, 10)}` : '';
 
   const extraKeys = [];
   const extraCols = [];
-  if (checkProperty(p, 'additional_field')) {
-    const requested = arrayWrap(p.additional_field).map(f => String(f).toLowerCase());
-    for (const key of requested) {
-      if (BASE_OBSERVATION_KEYS.has(key)) continue;
-      const def = ADDITIONAL_FIELD_MAP[key];
-      if (!def) continue;
-      extraCols.push(`${def.table}.${def.col} AS ${key}`);
-      extraKeys.push(key);
-    }
+  const requestedAdditional = resolveAdditionalFields(p);
+  for (const key of requestedAdditional) {
+    if (BASE_OBSERVATION_KEYS.has(key)) continue;
+    const def = ADDITIONAL_FIELD_MAP[key];
+    if (!def) continue;
+    extraCols.push(`${def.table}.${def.col} AS ${key}`);
+    extraKeys.push(key);
   }
 
   const extraSelect = extraCols.length > 0 ? ',\n        ' + extraCols.join(',\n        ') : '';
@@ -680,6 +793,7 @@ router.all('/get_observations', async (req, res) => {
       IFNULL(co.Abundance_Value, -9999)                        AS abundance_value${extraSelect}
     FROM usanpn2.Cached_Summarized_Data csd
     INNER JOIN usanpn2.Cached_Observation co ON co.Series_ID = csd.Series_ID
+    ${extraJoins.join(' ')}
     ${whereClause}
     ORDER BY co.Observation_Date ASC
     ${limitClause}
@@ -755,6 +869,7 @@ router.all('/get_summarized_data', async (req, res) => {
 
   const seriesConditions = [];
   const seriesParams = [];
+  const seriesJoins = [];
 
   if (checkProperty(p, 'state')) {
     const states = arrayWrap(p.state).filter(s => s !== '' && s !== null && s !== undefined);
@@ -803,6 +918,45 @@ router.all('/get_summarized_data', async (req, res) => {
     seriesParams.push(p.kingdom);
   }
 
+  // coords, taxonomic IDs, species_type, functional_type, network_id.
+  // The network_id filter wires through Cached_Network_Observation, which
+  // joins on Observation_ID. Since the main query is csd-driven, we add a
+  // join on Cached_Observation via Series_ID so cno has something to attach to.
+  applyCommonDownloadFilters(p, seriesConditions, seriesParams, seriesJoins, 'csd', 'co_net');
+  const needsNetworkJoin = seriesJoins.some(j => j.includes('Cached_Network_Observation'));
+  const networkSeriesJoinSql = needsNetworkJoin
+    ? 'INNER JOIN usanpn2.Cached_Observation co_net ON co_net.Series_ID = csd.Series_ID '
+    : '';
+
+  // additional_field handling. CO-side fields are pulled from a pre-aggregated
+  // subquery scoped to the date range so we keep one row per Series_ID.
+  const requestedAdditional = resolveAdditionalFields(p);
+  const csdAdditionalCols = [];
+  const coAdditionalCols = [];     // {key, sqlCol}
+  const responseAdditionalKeys = [];
+  for (const key of requestedAdditional) {
+    const def = ADDITIONAL_FIELD_MAP[key];
+    if (!def) continue;
+    responseAdditionalKeys.push({ key, decimal: !!def.decimal });
+    if (def.table === 'csd') {
+      csdAdditionalCols.push(`csd.${def.col} AS ${key}`);
+    } else {
+      coAdditionalCols.push({ key, col: def.col });
+    }
+  }
+  const coAggJoinSql = coAdditionalCols.length > 0
+    ? `LEFT JOIN (
+        SELECT Series_ID, ${coAdditionalCols.map(c => `MAX(${c.col}) AS ${c.key}`).join(', ')}
+        FROM usanpn2.Cached_Observation
+        WHERE Observation_Date BETWEEN ? AND ?
+        GROUP BY Series_ID
+       ) co_agg ON co_agg.Series_ID = csd.Series_ID `
+    : '';
+  const extraSelectSql = [
+    ...csdAdditionalCols,
+    ...coAdditionalCols.map(c => `co_agg.${c.key} AS ${c.key}`),
+  ].map(s => ',\n      ' + s).join('');
+
   const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
   const limitClause = checkProperty(p, 'limit') ? `LIMIT ${parseInt(p.limit, 10)}` : '';
 
@@ -810,6 +964,8 @@ router.all('/get_summarized_data', async (req, res) => {
     startDate, endDate,
     startDate, endDate,
     startDate, endDate,
+    // co_agg subquery date range (if present)
+    ...(coAdditionalCols.length > 0 ? [startDate, endDate] : []),
     ...seriesParams,
   ];
 
@@ -867,11 +1023,13 @@ router.all('/get_summarized_data', async (req, res) => {
       DAY(sy.last_yes_date)                                                 AS last_yes_day,
       DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
       ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
-      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no
+      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${extraSelectSql}
     FROM usanpn2.Cached_Summarized_Data csd
     INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
     LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
     LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
+    ${networkSeriesJoinSql}${seriesJoins.join(' ')}
+    ${coAggJoinSql}
     WHERE 1=1 ${seriesWhere}
     ORDER BY csd.Site_ID ASC, csd.Species_ID ASC
     ${limitClause}
@@ -898,11 +1056,18 @@ router.all('/get_summarized_data', async (req, res) => {
 
   q.on('result', (row) => {
     if (ended) return;
-    const chunk = (first ? '' : ',') + JSON.stringify({
+    const out = {
       ...row,
       first_yes_julian_date: parseInt(row.first_yes_julian_date, 10),
       last_yes_julian_date: parseInt(row.last_yes_julian_date, 10),
-    });
+    };
+    for (const { key, decimal } of responseAdditionalKeys) {
+      const raw = row[key];
+      if (raw === null || raw === undefined) out[key] = -9999;
+      else if (decimal) out[key] = parseFloat(raw);
+      else out[key] = raw;
+    }
+    const chunk = (first ? '' : ',') + JSON.stringify(out);
     first = false;
     if (!res.write(chunk)) rawConn.pause();
   });
@@ -933,6 +1098,7 @@ router.all('/get_site_level_data', async (req, res) => {
 
   const seriesConditions = [];
   const seriesParams = [];
+  const seriesJoins = [];
 
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
@@ -958,14 +1124,6 @@ router.all('/get_site_level_data', async (req, res) => {
     }
   }
 
-  if (checkProperty(p, 'network_id')) {
-    const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    if (ids.length > 0) {
-      seriesConditions.push('csd.Network_ID IN (?)');
-      seriesParams.push(ids);
-    }
-  }
-
   if (checkProperty(p, 'pheno_class_id')) {
     const ids = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     if (ids.length > 0) {
@@ -974,11 +1132,47 @@ router.all('/get_site_level_data', async (req, res) => {
     }
   }
 
+  // coords, taxonomic IDs, species_type, functional_type, network_id
+  applyCommonDownloadFilters(p, seriesConditions, seriesParams, seriesJoins, 'csd', 'co_net');
+  const needsNetworkJoin = seriesJoins.some(j => j.includes('Cached_Network_Observation'));
+  const networkSeriesJoinSql = needsNetworkJoin
+    ? 'INNER JOIN usanpn2.Cached_Observation co_net ON co_net.Series_ID = csd.Series_ID '
+    : '';
+
+  // additional_field support (CSD-only fields directly; CO-side via aggregated subquery)
+  const requestedAdditional = resolveAdditionalFields(p);
+  const csdAdditionalCols = [];
+  const coAdditionalCols = [];
+  const responseAdditionalKeys = [];
+  for (const key of requestedAdditional) {
+    const def = ADDITIONAL_FIELD_MAP[key];
+    if (!def) continue;
+    responseAdditionalKeys.push({ key, decimal: !!def.decimal });
+    if (def.table === 'csd') csdAdditionalCols.push(`csd.${def.col} AS ${key}`);
+    else coAdditionalCols.push({ key, col: def.col });
+  }
+  const coAggJoinSql = coAdditionalCols.length > 0
+    ? `LEFT JOIN (
+        SELECT Series_ID, ${coAdditionalCols.map(c => `MAX(${c.col}) AS ${c.key}`).join(', ')}
+        FROM usanpn2.Cached_Observation
+        WHERE Observation_Date BETWEEN ? AND ?
+        GROUP BY Series_ID
+       ) co_agg ON co_agg.Series_ID = csd.Series_ID `
+    : '';
+  const extraSelectSql = [
+    ...csdAdditionalCols,
+    ...coAdditionalCols.map(c => `co_agg.${c.key} AS ${c.key}`),
+  ].map(s => ',\n      ' + s).join('');
+
   const slPhenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
   const slTaxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
 
   const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
-  const params = [startDate, endDate, startDate, endDate, startDate, endDate, ...seriesParams];
+  const params = [
+    startDate, endDate, startDate, endDate, startDate, endDate,
+    ...(coAdditionalCols.length > 0 ? [startDate, endDate] : []),
+    ...seriesParams,
+  ];
 
   const sql = `
     WITH series_yes AS (
@@ -1028,11 +1222,13 @@ router.all('/get_site_level_data', async (req, res) => {
       IFNULL(DATEDIFF(sy.first_yes_date, pn.prior_no_date), -9999)         AS numdays_since_prior_no,
       DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
       ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
-      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no
+      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${extraSelectSql}
     FROM usanpn2.Cached_Summarized_Data csd
     INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
     LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
     LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
+    ${networkSeriesJoinSql}${seriesJoins.join(' ')}
+    ${coAggJoinSql}
     WHERE 1=1 ${seriesWhere}
   `;
 
@@ -1097,10 +1293,17 @@ router.all('/get_site_level_data', async (req, res) => {
         lastJulians: [],
         lastDoys: [],
         lastDaysUntil: [],
+        additional: {},
       };
       if (slPhenoClassAggregate) {
         entry.pheno_class_id = r.pheno_class_id;
         entry.pheno_class_name = r.pheno_class_name;
+      }
+      for (const { key: addKey, decimal } of responseAdditionalKeys) {
+        const raw = r[addKey];
+        if (raw === null || raw === undefined) entry.additional[addKey] = -9999;
+        else if (decimal) entry.additional[addKey] = parseFloat(raw);
+        else entry.additional[addKey] = raw;
       }
       siteMap.set(key, entry);
     }
@@ -1192,6 +1395,7 @@ router.all('/get_site_level_data', async (req, res) => {
         mean_numdays_until_next_no: meanDaysUntil,
         se_numdays_until_next_no: seDaysUntil,
       });
+      Object.assign(item, site.additional || {});
       result.push(item);
     }
 
@@ -1276,6 +1480,7 @@ router.all('/get_magnitude_data', async (req, res) => {
   // Optional filters on CSD
   const filterConds = [];
   const filterParams = [];
+  const filterJoins = [];
 
   if (checkProperty(p, 'species_id')) {
     const ids = arrayWrap(p.species_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
@@ -1290,14 +1495,13 @@ router.all('/get_magnitude_data', async (req, res) => {
     const ids = arrayWrap(raw).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     if (ids.length > 0) { filterConds.push('csd.Site_ID IN (?)'); filterParams.push(ids); }
   }
-  if (checkProperty(p, 'network_id')) {
-    const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-    if (ids.length > 0) { filterConds.push('csd.Network_ID IN (?)'); filterParams.push(ids); }
-  }
   if (checkProperty(p, 'pheno_class_id')) {
     const ids = arrayWrap(p.pheno_class_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     if (ids.length > 0) { filterConds.push('csd.Pheno_Class_ID IN (?)'); filterParams.push(ids); }
   }
+
+  // coords, taxonomic IDs, species_type, functional_type, network_id (joins Cached_Network_Observation on co.Observation_ID)
+  applyCommonDownloadFilters(p, filterConds, filterParams, filterJoins, 'csd', 'co');
 
   const phenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
   const taxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
@@ -1365,6 +1569,7 @@ router.all('/get_magnitude_data', async (req, res) => {
       MIN(co.Observation_Date)                                        AS sample_date
     FROM usanpn2.Cached_Summarized_Data csd
     INNER JOIN usanpn2.Cached_Observation co ON co.Series_ID = csd.Series_ID
+    ${filterJoins.join(' ')}
     WHERE co.Phenophase_Status >= 0
       AND co.Observation_Date BETWEEN ? AND ?
       ${filterWhere}

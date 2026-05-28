@@ -219,55 +219,179 @@ router.all('/get_phenophases_for_species', async (req, res) => {
 });
 
 // GET /get_phenophases_for_taxon
+// rnpn sends one (or more) of: family_id, order_id, class_id, genus_id (as arrays)
+// plus either `date=YYYY-MM-DD` or `return_all=1`. Returns one entry per taxon ID,
+// each containing the phenophases applicable to that taxon on that date.
 router.all('/get_phenophases_for_taxon', async (req, res) => {
   try {
     const p = req.query;
-
-    if (!checkProperty(p, 'taxon_id')) {
-      return res.status(400).json({ error: 'taxon_id is required' });
-    }
-
-    const taxonId = parseInt(p.taxon_id, 10);
     const returnAll = resolveBooleanText(p, 'return_all', false);
+    const hasDate = checkProperty(p, 'date');
 
-    const conditions = [
-      '(s.Class_ID = ? OR s.Order_ID = ? OR s.Family_ID = ? OR s.Genus_ID = ?)',
-    ];
-    const params = [taxonId, taxonId, taxonId, taxonId];
-
-    if (!returnAll) {
-      conditions.push('(sp.End_Date IS NULL OR sp.End_Date >= CURDATE())');
-      conditions.push('(sp.Start_Date IS NULL OR sp.Start_Date <= CURDATE())');
+    if (!hasDate && !returnAll) {
+      return res.json([]);
     }
 
-    const sql = `
-      SELECT DISTINCT
-        pp.Phenophase_ID AS phenophase_id,
-        pp.Phenophase_Name AS phenophase_name,
-        pp.Short_Name AS short_name,
-        pd.Definition AS definition,
-        pd.Additional_Definition AS additional_definition,
-        pp.Color AS color,
-        pc.Pheno_Class_ID AS pheno_class_id,
-        pc.Name AS pheno_class_name,
-        pc.Sequence AS pheno_class_sequence
-      FROM usanpn2.Species s
-      LEFT JOIN usanpn2.Species_Protocol sp ON sp.Species_ID = s.Species_ID
-      LEFT JOIN usanpn2.Protocol pr ON pr.Protocol_ID = sp.Protocol_ID
-      LEFT JOIN usanpn2.Protocol_Phenophase pp2 ON pp2.Protocol_ID = pr.Protocol_ID
-      LEFT JOIN usanpn2.Phenophase pp ON pp.Phenophase_ID = pp2.Phenophase_ID
-      LEFT JOIN usanpn2.Pheno_Class pc ON pc.Pheno_Class_ID = pp.Pheno_Class_ID
-      LEFT JOIN usanpn2.Phenophase_Definition pd
-        ON pd.Phenophase_ID = pp.Phenophase_ID
-        AND (pd.End_Date IS NULL OR pd.End_Date >= CURDATE())
-        AND (pd.Start_Date IS NULL OR pd.Start_Date <= CURDATE())
-      WHERE ${conditions.join(' AND ')}
-        AND s.Active = 1
-      ORDER BY pc.Sequence ASC, pp.Phenophase_Name ASC
-    `;
+    const date = hasDate ? p.date : null;
 
-    const [rows] = await npnPool.query(sql, params);
-    res.json(rows);
+    // Match PHP precedence: family_id > order_id > class_id > genus_id
+    let joinField = null;
+    let taxonIds = null;
+    const taxonResponseKey = {
+      Family_ID: ['family_id', 'family_name'],
+      Order_ID:  ['order_id',  'order_name'],
+      Class_ID:  ['class_id',  'class_name'],
+      Genus_ID:  ['genus_id',  'genus_name'],
+    };
+
+    for (const [param, col] of [
+      ['family_id', 'Family_ID'],
+      ['order_id',  'Order_ID'],
+      ['class_id',  'Class_ID'],
+      ['genus_id',  'Genus_ID'],
+    ]) {
+      if (checkProperty(p, param)) {
+        joinField = col;
+        taxonIds = arrayWrap(p[param]).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+        break;
+      }
+    }
+
+    if (joinField === null || !taxonIds || taxonIds.length === 0) {
+      return res.json([]);
+    }
+
+    const stripHtml = s => s ? String(s).replace(/<[^>]*>/g, '') : '';
+    const cleanTextLike = s => stripHtml(s);
+
+    const finalResults = [];
+
+    for (const taxonId of taxonIds) {
+      // Try date-scoped protocol/phenophase definition first (matches PHP).
+      // If that returns nothing, fall back to the current active protocol.
+      let rows = [];
+
+      if (!returnAll) {
+        const dateScopedSql = `
+          SELECT DISTINCT
+            pp.Phenophase_ID,
+            pd.Phenophase_Name,
+            pp.Short_Name,
+            st.Name AS Taxon_Name,
+            st.Taxon_ID,
+            pd.Definition,
+            ppp.Seq_Num,
+            pp.Color,
+            pp.Pheno_Class_ID,
+            pc.Name AS Pheno_Class_Name,
+            pc.Sequence AS Pheno_Class_Sequence,
+            pd.Definition_ID
+          FROM usanpn2.Species s
+          LEFT JOIN usanpn2.Species_Taxon st ON st.Taxon_ID = s.${joinField}
+          LEFT JOIN usanpn2.Species_Protocol sp ON sp.Species_ID = s.Species_ID
+          LEFT JOIN usanpn2.Protocol_Phenophase ppp ON ppp.Protocol_ID = sp.Protocol_ID
+          LEFT JOIN usanpn2.Phenophase pp ON pp.Phenophase_ID = ppp.Phenophase_ID
+          LEFT JOIN usanpn2.Phenophase_Definition pd
+            ON pd.Phenophase_ID = pp.Phenophase_ID
+            AND ? >= pd.Start_Date
+            AND (pd.End_Date IS NULL OR pd.End_Date >= ?)
+          LEFT JOIN usanpn2.Pheno_Class pc ON pc.Pheno_Class_ID = pp.Pheno_Class_ID
+          WHERE s.${joinField} = ?
+            AND sp.Start_Date <= ?
+            AND (
+              (sp.End_Date IS NULL AND sp.Active = 1)
+              OR (sp.End_Date IS NOT NULL AND sp.End_Date > ?)
+            )
+            AND pd.Dataset_ID IS NULL
+          ORDER BY ppp.Seq_Num ASC
+        `;
+        [rows] = await npnPool.query(dateScopedSql, [date, date, taxonId, date, date]);
+
+        if (rows.length === 0) {
+          const fallbackSql = `
+            SELECT DISTINCT
+              pp.Phenophase_ID,
+              pd.Phenophase_Name,
+              pp.Short_Name,
+              st.Name AS Taxon_Name,
+              st.Taxon_ID,
+              pd.Definition,
+              ppp.Seq_Num,
+              pp.Color,
+              pp.Pheno_Class_ID,
+              pc.Name AS Pheno_Class_Name,
+              pc.Sequence AS Pheno_Class_Sequence,
+              pd.Definition_ID
+            FROM usanpn2.Species s
+            LEFT JOIN usanpn2.Species_Taxon st ON st.Taxon_ID = s.${joinField}
+            LEFT JOIN usanpn2.Species_Protocol sp ON sp.Species_ID = s.Species_ID
+            LEFT JOIN usanpn2.Protocol_Phenophase ppp ON ppp.Protocol_ID = sp.Protocol_ID
+            LEFT JOIN usanpn2.Phenophase pp ON pp.Phenophase_ID = ppp.Phenophase_ID
+            LEFT JOIN usanpn2.Phenophase_Definition pd
+              ON pd.Phenophase_ID = pp.Phenophase_ID
+              AND pd.End_Date IS NULL
+            LEFT JOIN usanpn2.Pheno_Class pc ON pc.Pheno_Class_ID = pp.Pheno_Class_ID
+            WHERE s.${joinField} = ?
+              AND sp.Active = 1
+              AND pd.Dataset_ID IS NULL
+            ORDER BY ppp.Seq_Num ASC
+          `;
+          [rows] = await npnPool.query(fallbackSql, [taxonId]);
+        }
+      } else {
+        const allSql = `
+          SELECT DISTINCT
+            pp.Phenophase_ID,
+            pd.Phenophase_Name,
+            pp.Short_Name,
+            st.Name AS Taxon_Name,
+            st.Taxon_ID,
+            pd.Definition,
+            ppp.Seq_Num,
+            pp.Color,
+            pp.Pheno_Class_ID,
+            pc.Name AS Pheno_Class_Name,
+            pc.Sequence AS Pheno_Class_Sequence,
+            pd.Definition_ID
+          FROM usanpn2.Species s
+          LEFT JOIN usanpn2.Species_Taxon st ON st.Taxon_ID = s.${joinField}
+          LEFT JOIN usanpn2.Species_Protocol sp ON sp.Species_ID = s.Species_ID
+          LEFT JOIN usanpn2.Protocol_Phenophase ppp ON ppp.Protocol_ID = sp.Protocol_ID
+          LEFT JOIN usanpn2.Phenophase pp ON pp.Phenophase_ID = ppp.Phenophase_ID
+          LEFT JOIN usanpn2.Phenophase_Definition pd ON pd.Phenophase_ID = pp.Phenophase_ID
+          LEFT JOIN usanpn2.Pheno_Class pc ON pc.Pheno_Class_ID = pp.Pheno_Class_ID
+          WHERE s.${joinField} = ?
+          ORDER BY ppp.Seq_Num ASC
+        `;
+        [rows] = await npnPool.query(allSql, [taxonId]);
+      }
+
+      const phenophases = rows
+        .filter(r => r.Phenophase_ID != null)
+        .map(r => ({
+          phenophase_id: r.Phenophase_ID,
+          phenophase_name: cleanTextLike(r.Phenophase_Name),
+          phenophase_category: cleanTextLike(r.Short_Name),
+          phenophase_definition: cleanTextLike(r.Definition),
+          seq_num: r.Seq_Num,
+          color: r.Color,
+          pheno_class_id: r.Pheno_Class_ID,
+          pheno_class_name: r.Pheno_Class_Name,
+          pheno_class_sequence: r.Pheno_Class_Sequence,
+          phenophase_definition_id: r.Definition_ID,
+        }));
+
+      // Pull taxon name/ID from any row (they're all the same taxon)
+      const taxonRow = rows.find(r => r.Taxon_ID != null) || {};
+      const [idKey, nameKey] = taxonResponseKey[joinField];
+      finalResults.push({
+        [idKey]: taxonRow.Taxon_ID != null ? taxonRow.Taxon_ID : taxonId,
+        [nameKey]: taxonRow.Taxon_Name || null,
+        phenophases,
+      });
+    }
+
+    res.json(finalResults);
   } catch (err) {
     console.error('get_phenophases_for_taxon error:', err.message);
     res.status(500).json({ error: err.message });
