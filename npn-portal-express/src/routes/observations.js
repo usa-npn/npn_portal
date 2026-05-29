@@ -117,6 +117,26 @@ function resolveAdditionalFields(p) {
 }
 
 /**
+ * Legacy parity: the CakePHP API automatically included Pheno_Class_ID and
+ * Pheno_Class_Name in the output whenever the caller filtered by
+ * pheno_class_id (or aggregated by pheno class). The summarized, site-level,
+ * and magnitude searches all did this via searchByPhenoClassID(). Mirror it
+ * here, de-duplicating against any explicitly requested additional_field
+ * values so we never emit a column twice.
+ */
+function withPhenoClassDefaults(requested, p) {
+  const deduped = [...new Set(requested)];
+  const wantsPhenoClass =
+    checkProperty(p, 'pheno_class_id') ||
+    (checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1');
+  if (!wantsPhenoClass) return deduped;
+  for (const f of ['pheno_class_id', 'pheno_class_name']) {
+    if (!deduped.includes(f)) deduped.push(f);
+  }
+  return deduped;
+}
+
+/**
  * Build common observation filter conditions and params from query params.
  * Returns { conditions: string[], params: any[] }
  */
@@ -930,7 +950,7 @@ router.all('/get_summarized_data', async (req, res) => {
 
   // additional_field handling. CO-side fields are pulled from a pre-aggregated
   // subquery scoped to the date range so we keep one row per Series_ID.
-  const requestedAdditional = resolveAdditionalFields(p);
+  const requestedAdditional = withPhenoClassDefaults(resolveAdditionalFields(p), p);
   const csdAdditionalCols = [];
   const coAdditionalCols = [];     // {key, sqlCol}
   const responseAdditionalKeys = [];
@@ -1140,7 +1160,7 @@ router.all('/get_site_level_data', async (req, res) => {
     : '';
 
   // additional_field support (CSD-only fields directly; CO-side via aggregated subquery)
-  const requestedAdditional = resolveAdditionalFields(p);
+  const requestedAdditional = withPhenoClassDefaults(resolveAdditionalFields(p), p);
   const csdAdditionalCols = [];
   const coAdditionalCols = [];
   const responseAdditionalKeys = [];
@@ -1517,9 +1537,16 @@ router.all('/get_magnitude_data', async (req, res) => {
 
   const filterWhere = filterConds.length > 0 ? 'AND ' + filterConds.join(' AND ') : '';
 
+  // Legacy parity: searchByPhenoClassID() added Pheno_Class_ID/Name to the
+  // output whenever pheno_class_id was filtered on OR aggregated by. When
+  // aggregating, the columns are part of the GROUP BY; when only filtering,
+  // they are not grouped, so wrap them in MAX() to stay GROUP BY-safe.
+  const phenoClassFilter = checkProperty(p, 'pheno_class_id');
   const extraSelectCols = phenoClassAggregate
     ? `,\n      csd.Pheno_Class_ID AS pheno_class_id,\n      csd.Pheno_Class_Name AS pheno_class_name`
-    : '';
+    : (phenoClassFilter
+        ? `,\n      MAX(csd.Pheno_Class_ID) AS pheno_class_id,\n      MAX(csd.Pheno_Class_Name) AS pheno_class_name`
+        : '');
 
   const sql = `
     SELECT
@@ -1730,6 +1757,11 @@ router.all('/get_magnitude_data', async (req, res) => {
       kingdom: r.kingdom,
       phenophase_id: r.phenophase_id,
       phenophase_description: r.phenophase_description,
+      // Legacy parity: Pheno_Class_ID/Name are surfaced whenever the caller
+      // filtered or aggregated by pheno class (selected in SQL above).
+      ...(r.pheno_class_id !== undefined
+        ? { pheno_class_id: r.pheno_class_id, pheno_class_name: r.pheno_class_name }
+        : {}),
       year,
       start_date: startDStr,
       end_date: endDStr,
