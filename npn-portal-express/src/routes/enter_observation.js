@@ -136,12 +136,11 @@ router.post('/enter_observation_set', async (req, res) => {
 
       await connection.commit();
     } catch (txErr) {
-      await connection.rollback();
-      connection.release();
+      try { await connection.rollback(); } catch (_) {}
       throw txErr;
+    } finally {
+      connection.release();
     }
-
-    connection.release();
 
     res.json({
       response_code: 'success',
@@ -198,12 +197,11 @@ router.post('/enter_observation', async (req, res) => {
       result = await insertSingleObservation(personId, body, connection);
       await connection.commit();
     } catch (txErr) {
-      await connection.rollback();
-      connection.release();
+      try { await connection.rollback(); } catch (_) {}
       throw txErr;
+    } finally {
+      connection.release();
     }
-
-    connection.release();
 
     res.json({
       response_code: 'success',

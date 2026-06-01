@@ -478,9 +478,13 @@ router.all('/get_observation_dates', async (req, res) => {
     `;
 
     const conn = await npnPool.getConnection();
-    await conn.query('SET SESSION group_concat_max_len = 10000000');
-    const [rows] = await conn.query(sql, params);
-    conn.release();
+    let rows;
+    try {
+      await conn.query('SET SESSION group_concat_max_len = 10000000');
+      [rows] = await conn.query(sql, params);
+    } finally {
+      conn.release();
+    }
 
     if (!rows || rows.length === 0) {
       return res.json({ error_message: 'No results found' });
