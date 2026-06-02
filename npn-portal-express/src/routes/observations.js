@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { npnPool } = require('../config/db');
+const { npnPool, npnDownloadPool } = require('../config/db');
 const checkProperty = require('../utils/checkProperty');
 const arrayWrap = require('../utils/arrayWrap');
 const resolveBooleanText = require('../utils/resolveBooleanText');
@@ -478,9 +478,12 @@ router.all('/get_observations_count', async (req, res) => {
       }
     }
 
-    if (checkProperty(p, 'state') && String(p.state).trim()) {
-      conditions.push('csd.State = ?');
-      params.push(p.state);
+    if (checkProperty(p, 'state')) {
+      const states = arrayWrap(p.state).filter(s => s !== null && s !== undefined && String(s).trim() !== '');
+      if (states.length > 0) {
+        conditions.push('csd.State IN (?)');
+        params.push(states);
+      }
     }
 
     if (checkProperty(p, 'dataset_ids')) {
@@ -505,8 +508,11 @@ router.all('/get_observations_count', async (req, res) => {
     }
 
     if (checkProperty(p, 'phenophase_category')) {
-      conditions.push('csd.Phenophase_Category = ?');
-      params.push(p.phenophase_category);
+      const cats = arrayWrap(p.phenophase_category).filter(c => c !== null && c !== undefined && String(c).trim() !== '');
+      if (cats.length > 0) {
+        conditions.push('csd.Phenophase_Category IN (?)');
+        params.push(cats);
+      }
     }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -957,9 +963,10 @@ router.all('/get_observations', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnPool.getConnection();
+    conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
   } catch (err) {
+    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
     console.error('get_observations error:', err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -1138,9 +1145,10 @@ router.all('/get_summarized_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnPool.getConnection();
+    conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
   } catch (err) {
+    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
     console.error('get_summarized_data error:', err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -1301,9 +1309,10 @@ router.all('/get_site_level_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnPool.getConnection();
+    conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
   } catch (err) {
+    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
     console.error('get_site_level_data error:', err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -1649,10 +1658,11 @@ router.all('/get_magnitude_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnPool.getConnection();
+    conn = await npnDownloadPool.getConnection();
     await conn.query('SET SESSION group_concat_max_len = 10000000');
     await configureStreamSession(conn);
   } catch (err) {
+    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
     console.error('get_magnitude_data error:', err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -1871,9 +1881,10 @@ router.all('/get_observation_group_details', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnPool.getConnection();
+    conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
   } catch (err) {
+    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
     console.error('get_observation_group_details error:', err.message);
     return res.status(500).json({ error: err.message });
   }

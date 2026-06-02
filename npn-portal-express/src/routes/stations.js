@@ -114,6 +114,7 @@ router.all('/get_stations_for_boundary', async (req, res) => {
     const p = req.query;
     const conditions = [];
     const params = [];
+    let boundaryJoin = '';
 
     if (
       checkProperty(p, 'bottom_left_x') &&
@@ -128,9 +129,17 @@ router.all('/get_stations_for_boundary', async (req, res) => {
     }
 
     if (checkProperty(p, 'boundary_id')) {
-      // boundary_id references a predefined geographic boundary
-      conditions.push('s.Boundary_ID = ?');
-      params.push(p.boundary_id);
+      // boundary_id is a row in the Boundary table; test each station's point against
+      // its Simple_WKT polygon with ST_Contains (matches CakePHP getStationsForBoundary).
+      const boundaryId = parseInt(p.boundary_id, 10);
+      if (isNaN(boundaryId) || boundaryId <= 0) {
+        return res.status(400).json({ error: 'Invalid boundary_id' });
+      }
+      boundaryJoin = 'JOIN usanpn2.Boundary b ON b.Boundary_ID = ?';
+      params.unshift(boundaryId); // join placeholder precedes the WHERE params
+      conditions.push(
+        "ST_Contains(ST_GeomFromText(b.Simple_WKT), ST_GeomFromText(CONCAT('POINT(', s.Longitude, ' ', s.Latitude, ')'))) = 1"
+      );
     }
 
     if (conditions.length === 0) {
@@ -141,6 +150,7 @@ router.all('/get_stations_for_boundary', async (req, res) => {
       SELECT DISTINCT
         s.Station_ID, s.Station_Name, s.Latitude, s.Longitude, s.Observer_ID, s.State
       FROM usanpn2.Station s
+      ${boundaryJoin}
       WHERE ${conditions.join(' AND ')}
       ORDER BY s.Station_Name ASC
     `;

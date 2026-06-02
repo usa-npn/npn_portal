@@ -12,12 +12,33 @@ const mysqlPoolDefaults = {
   keepAliveInitialDelay: 10000,
 };
 
-const npnPool = mysql.createPool({
+const npnConfig = {
   host: process.env.OPS_USANPN_HOST,
   user: process.env.OPS_USANPN_USER,
   password: process.env.OPS_USANPN_PASSWORD,
   database: process.env.OPS_USANPN_DATABASE,
+};
+
+// Main pool for the fast metadata/CRUD endpoints. Generous limit (RDS max_connections
+// is ~1284 with peak usage ~90, so there is ample headroom) so these short queries
+// effectively never queue behind anything.
+const npnPool = mysql.createPool({
+  ...npnConfig,
   ...mysqlPoolDefaults,
+  connectionLimit: 40,
+});
+
+// Dedicated pool for the heavy streaming download endpoints (get_observations,
+// get_summarized_data, get_site_level_data, get_magnitude_data,
+// get_observation_group_details). The small limit is a deliberate concurrency cap:
+// the scarce resource is DB CPU/IO, not connection slots, so this bounds how many
+// heavy queries run at once. A bounded queue makes excess download requests fail
+// fast instead of starving npnPool or hanging the whole API.
+const npnDownloadPool = mysql.createPool({
+  ...npnConfig,
+  ...mysqlPoolDefaults,
+  connectionLimit: 10,
+  queueLimit: 20,
 });
 
 const drupalPool = mysql.createPool({
@@ -39,4 +60,4 @@ const gisPool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-module.exports = { npnPool, drupalPool, gisPool };
+module.exports = { npnPool, npnDownloadPool, drupalPool, gisPool };
