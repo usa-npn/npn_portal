@@ -182,6 +182,93 @@ function withPhenoClassDefaults(requested, p) {
 }
 
 /**
+ * Build the shared CTE prefix and join tail for the per-series phenometrics queries
+ * (get_summarized_data, get_site_level_data). Both compute first/last "yes" dates and
+ * the surrounding prior/next "no" dates per Series_ID over a date window.
+ *
+ * Two performance properties, restored from the original CakePHP single-pass query
+ * (the Express CTE rewrite had dropped both):
+ *   #1 The csd-level filters (species/state/coords/taxonomy/network) are pushed into
+ *      series_yes as a Series_ID membership subquery, so the heavy Cached_Observation
+ *      aggregation runs only for the series the caller wants — not every series in the
+ *      year. prior_no/next_no inherit the restriction by joining series_yes. Omitted
+ *      entirely when there are no filters (full-dataset download).
+ *   #2 CO-side additional fields (climate, conflict flag, ...) are aggregated in the
+ *      same series_yes pass (MAX over the same rows) instead of a separate co_agg scan.
+ *
+ * Returns { withClause, joinTail, extraSelectSql, params }. Callers append their own
+ * SELECT column list (immediately before extraSelectSql) and any ORDER BY / LIMIT.
+ * Param order matches the placeholders: series_yes (dates, then pushdown filter params),
+ * prior_no dates, next_no dates.
+ */
+function buildPhenometricsQuery({ startDate, endDate, seriesConditions, seriesParams, seriesJoins, csdAdditionalCols, coAdditionalCols }) {
+  const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
+  const hasSeriesFilter = seriesConditions.length > 0 || seriesJoins.length > 0;
+
+  // #1 — limit the Cached_Observation aggregation to series passing the csd-level filters.
+  const seriesFilter = hasSeriesFilter
+    ? `AND co.Series_ID IN (
+          SELECT csd.Series_ID
+          FROM usanpn2.Cached_Summarized_Data csd
+          ${seriesJoins.join(' ')}
+          WHERE 1=1 ${seriesWhere}
+        )`
+    : '';
+
+  // #2 — fold CO-side additional fields into the series_yes pass (same rows, same GROUP BY).
+  const climateSelect = coAdditionalCols.map(c => `,\n        MAX(co.${c.col}) AS ${c.key}`).join('');
+
+  const withClause = `WITH series_yes AS (
+      SELECT
+        co.Series_ID,
+        MIN(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS first_yes_date,
+        MAX(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS last_yes_date${climateSelect}
+      FROM usanpn2.Cached_Observation co
+      WHERE co.Observation_Date BETWEEN ? AND ?
+        ${seriesFilter}
+      GROUP BY co.Series_ID
+      HAVING first_yes_date IS NOT NULL
+    ),
+    prior_no AS (
+      SELECT co.Series_ID, MAX(co.Observation_Date) AS prior_no_date
+      FROM usanpn2.Cached_Observation co
+      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
+      WHERE co.Phenophase_Status = 0
+        AND co.Observation_Date BETWEEN ? AND ?
+        AND co.Observation_Date < sy.first_yes_date
+      GROUP BY co.Series_ID
+    ),
+    next_no AS (
+      SELECT co.Series_ID, MIN(co.Observation_Date) AS next_no_date
+      FROM usanpn2.Cached_Observation co
+      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
+      WHERE co.Phenophase_Status = 0
+        AND co.Observation_Date BETWEEN ? AND ?
+        AND co.Observation_Date > sy.last_yes_date
+      GROUP BY co.Series_ID
+    )`;
+
+  const joinTail = `FROM usanpn2.Cached_Summarized_Data csd
+    INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
+    LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
+    LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
+    WHERE 1=1`;
+
+  const extraSelectSql = [
+    ...csdAdditionalCols,
+    ...coAdditionalCols.map(c => `sy.${c.key} AS ${c.key}`),
+  ].map(s => ',\n      ' + s).join('');
+
+  const params = [
+    startDate, endDate, ...seriesParams,
+    startDate, endDate,
+    startDate, endDate,
+  ];
+
+  return { withClause, joinTail, extraSelectSql, params };
+}
+
+/**
  * Build common observation filter conditions and params from query params.
  * Returns { conditions: string[], params: any[] }
  */
@@ -1010,60 +1097,14 @@ router.all('/get_summarized_data', async (req, res) => {
       coAdditionalCols.push({ key, col: def.col });
     }
   }
-  const coAggJoinSql = coAdditionalCols.length > 0
-    ? `LEFT JOIN (
-        SELECT Series_ID, ${coAdditionalCols.map(c => `MAX(${c.col}) AS ${c.key}`).join(', ')}
-        FROM usanpn2.Cached_Observation
-        WHERE Observation_Date BETWEEN ? AND ?
-        GROUP BY Series_ID
-       ) co_agg ON co_agg.Series_ID = csd.Series_ID `
-    : '';
-  const extraSelectSql = [
-    ...csdAdditionalCols,
-    ...coAdditionalCols.map(c => `co_agg.${c.key} AS ${c.key}`),
-  ].map(s => ',\n      ' + s).join('');
-
-  const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
+  const { withClause, joinTail, extraSelectSql, params } = buildPhenometricsQuery({
+    startDate, endDate, seriesConditions, seriesParams, seriesJoins,
+    csdAdditionalCols, coAdditionalCols,
+  });
   const limitClause = checkProperty(p, 'limit') ? `LIMIT ${parseInt(p.limit, 10)}` : '';
 
-  const params = [
-    startDate, endDate,
-    startDate, endDate,
-    startDate, endDate,
-    // co_agg subquery date range (if present)
-    ...(coAdditionalCols.length > 0 ? [startDate, endDate] : []),
-    ...seriesParams,
-  ];
-
   const sql = `
-    WITH series_yes AS (
-      SELECT
-        co.Series_ID,
-        MIN(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS first_yes_date,
-        MAX(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS last_yes_date
-      FROM usanpn2.Cached_Observation co
-      WHERE co.Observation_Date BETWEEN ? AND ?
-      GROUP BY co.Series_ID
-      HAVING first_yes_date IS NOT NULL
-    ),
-    prior_no AS (
-      SELECT co.Series_ID, MAX(co.Observation_Date) AS prior_no_date
-      FROM usanpn2.Cached_Observation co
-      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
-      WHERE co.Phenophase_Status = 0
-        AND co.Observation_Date BETWEEN ? AND ?
-        AND co.Observation_Date < sy.first_yes_date
-      GROUP BY co.Series_ID
-    ),
-    next_no AS (
-      SELECT co.Series_ID, MIN(co.Observation_Date) AS next_no_date
-      FROM usanpn2.Cached_Observation co
-      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
-      WHERE co.Phenophase_Status = 0
-        AND co.Observation_Date BETWEEN ? AND ?
-        AND co.Observation_Date > sy.last_yes_date
-      GROUP BY co.Series_ID
-    )
+    ${withClause}
     SELECT
       csd.Site_ID                                                           AS site_id,
       csd.Latitude                                                          AS latitude,
@@ -1090,13 +1131,7 @@ router.all('/get_summarized_data', async (req, res) => {
       DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
       ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
       IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${extraSelectSql}
-    FROM usanpn2.Cached_Summarized_Data csd
-    INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
-    LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
-    LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
-    ${seriesJoins.join(' ')}
-    ${coAggJoinSql}
-    WHERE 1=1 ${seriesWhere}
+    ${joinTail}
     ORDER BY csd.Site_ID ASC, csd.Species_ID ASC
     ${limitClause}
   `;
@@ -1214,57 +1249,16 @@ router.all('/get_site_level_data', async (req, res) => {
     if (def.table === 'csd') csdAdditionalCols.push(`csd.${def.col} AS ${key}`);
     else coAdditionalCols.push({ key, col: def.col });
   }
-  const coAggJoinSql = coAdditionalCols.length > 0
-    ? `LEFT JOIN (
-        SELECT Series_ID, ${coAdditionalCols.map(c => `MAX(${c.col}) AS ${c.key}`).join(', ')}
-        FROM usanpn2.Cached_Observation
-        WHERE Observation_Date BETWEEN ? AND ?
-        GROUP BY Series_ID
-       ) co_agg ON co_agg.Series_ID = csd.Series_ID `
-    : '';
-  const extraSelectSql = [
-    ...csdAdditionalCols,
-    ...coAdditionalCols.map(c => `co_agg.${c.key} AS ${c.key}`),
-  ].map(s => ',\n      ' + s).join('');
-
   const slPhenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
   const slTaxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
 
-  const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
-  const params = [
-    startDate, endDate, startDate, endDate, startDate, endDate,
-    ...(coAdditionalCols.length > 0 ? [startDate, endDate] : []),
-    ...seriesParams,
-  ];
+  const { withClause, joinTail, extraSelectSql, params } = buildPhenometricsQuery({
+    startDate, endDate, seriesConditions, seriesParams, seriesJoins,
+    csdAdditionalCols, coAdditionalCols,
+  });
 
   const sql = `
-    WITH series_yes AS (
-      SELECT co.Series_ID,
-        MIN(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS first_yes_date,
-        MAX(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS last_yes_date
-      FROM usanpn2.Cached_Observation co
-      WHERE co.Observation_Date BETWEEN ? AND ?
-      GROUP BY co.Series_ID
-      HAVING first_yes_date IS NOT NULL
-    ),
-    prior_no AS (
-      SELECT co.Series_ID, MAX(co.Observation_Date) AS prior_no_date
-      FROM usanpn2.Cached_Observation co
-      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
-      WHERE co.Phenophase_Status = 0
-        AND co.Observation_Date BETWEEN ? AND ?
-        AND co.Observation_Date < sy.first_yes_date
-      GROUP BY co.Series_ID
-    ),
-    next_no AS (
-      SELECT co.Series_ID, MIN(co.Observation_Date) AS next_no_date
-      FROM usanpn2.Cached_Observation co
-      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
-      WHERE co.Phenophase_Status = 0
-        AND co.Observation_Date BETWEEN ? AND ?
-        AND co.Observation_Date > sy.last_yes_date
-      GROUP BY co.Series_ID
-    )
+    ${withClause}
     SELECT
       csd.Site_ID                                                           AS site_id,
       csd.Latitude                                                          AS latitude,
@@ -1286,13 +1280,7 @@ router.all('/get_site_level_data', async (req, res) => {
       DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
       ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
       IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${extraSelectSql}
-    FROM usanpn2.Cached_Summarized_Data csd
-    INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
-    LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
-    LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
-    ${seriesJoins.join(' ')}
-    ${coAggJoinSql}
-    WHERE 1=1 ${seriesWhere}
+    ${joinTail}
   `;
 
   function stdErrSample(arr) {
