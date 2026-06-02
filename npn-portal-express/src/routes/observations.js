@@ -51,9 +51,10 @@ const CLIMATE_FIELDS = [
  *   - genus_id / family_id / order_id / class_id (arrays, csd.*)
  *   - species_type (LIKE matching against csd.Species_Category)
  *   - functional_type (csd.Species_Functional_Type IN ...)
- *   - network_id (joins Cached_Network_Observation; needs `coAlias` to be the
- *     Cached_Observation alias so we can wire the join). Returns true if
- *     a network join was added so the caller can include cno in its FROM.
+ *   - network_id (restricts to Cached_Network_Observation members). For
+ *     per-observation queries pass `coAlias` = the real Cached_Observation alias;
+ *     for per-series phenometrics pass `coAlias` = 'co_net' to get a self-contained
+ *     Series_ID membership semi-join (no row multiplication, no caller bridge needed).
  */
 function applyCommonDownloadFilters(p, conditions, params, joins, csdAlias = 'csd', coAlias = 'co') {
   // Bounding-box coords
@@ -110,20 +111,37 @@ function applyCommonDownloadFilters(p, conditions, params, joins, csdAlias = 'cs
     }
   }
 
-  // network_id → join a deduped Cached_Network_Observation subquery on Observation_ID.
+  // network_id → restrict to rows belonging to the given network(s).
   // IDs are int-parsed and NaN-filtered above, so inlining them is safe and lets us
   // avoid threading another `?` param into the join (which would order-shift the
   // params relative to the WHERE clause, especially in CTE-based queries).
+  //
+  // Granularity matters: per-OBSERVATION queries (coAlias is the real Cached_Observation
+  // alias, e.g. 'co') filter on Observation_ID, where one row per matching observation is
+  // correct. Per-SERIES queries (phenometrics; coAlias === 'co_net') must filter as a
+  // membership SEMI-join on Series_ID — a deduped set — otherwise each series fans out to
+  // one row per matching observation and inflates the downstream per-series aggregation.
   if (checkProperty(p, 'network_id')) {
     const ids = arrayWrap(p.network_id).map(id => parseInt(id, 10)).filter(id => !isNaN(id));
     if (ids.length > 0) {
-      joins.push(
-        `INNER JOIN (
-          SELECT DISTINCT Observation_ID
-          FROM usanpn2.Cached_Network_Observation
-          WHERE Network_ID IN (${ids.join(',')})
-        ) cno ON cno.Observation_ID = ${coAlias}.Observation_ID`
-      );
+      if (coAlias === 'co_net') {
+        joins.push(
+          `INNER JOIN (
+            SELECT DISTINCT co_net.Series_ID
+            FROM usanpn2.Cached_Network_Observation cno
+            JOIN usanpn2.Cached_Observation co_net ON co_net.Observation_ID = cno.Observation_ID
+            WHERE cno.Network_ID IN (${ids.join(',')})
+          ) net_series ON net_series.Series_ID = ${csdAlias}.Series_ID`
+        );
+      } else {
+        joins.push(
+          `INNER JOIN (
+            SELECT DISTINCT Observation_ID
+            FROM usanpn2.Cached_Network_Observation
+            WHERE Network_ID IN (${ids.join(',')})
+          ) cno ON cno.Observation_ID = ${coAlias}.Observation_ID`
+        );
+      }
     }
   }
 }
@@ -971,14 +989,10 @@ router.all('/get_summarized_data', async (req, res) => {
   }
 
   // coords, taxonomic IDs, species_type, functional_type, network_id.
-  // The network_id filter wires through Cached_Network_Observation, which
-  // joins on Observation_ID. Since the main query is csd-driven, we add a
-  // join on Cached_Observation via Series_ID so cno has something to attach to.
+  // Passing coAlias 'co_net' makes the network_id filter a self-contained
+  // Series_ID membership semi-join (one row per series), since this query is
+  // per-series (csd-driven) and must not fan out across a series' observations.
   applyCommonDownloadFilters(p, seriesConditions, seriesParams, seriesJoins, 'csd', 'co_net');
-  const needsNetworkJoin = seriesJoins.some(j => j.includes('Cached_Network_Observation'));
-  const networkSeriesJoinSql = needsNetworkJoin
-    ? 'INNER JOIN usanpn2.Cached_Observation co_net ON co_net.Series_ID = csd.Series_ID '
-    : '';
 
   // additional_field handling. CO-side fields are pulled from a pre-aggregated
   // subquery scoped to the date range so we keep one row per Series_ID.
@@ -1080,7 +1094,7 @@ router.all('/get_summarized_data', async (req, res) => {
     INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
     LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
     LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
-    ${networkSeriesJoinSql}${seriesJoins.join(' ')}
+    ${seriesJoins.join(' ')}
     ${coAggJoinSql}
     WHERE 1=1 ${seriesWhere}
     ORDER BY csd.Site_ID ASC, csd.Species_ID ASC
@@ -1187,10 +1201,6 @@ router.all('/get_site_level_data', async (req, res) => {
 
   // coords, taxonomic IDs, species_type, functional_type, network_id
   applyCommonDownloadFilters(p, seriesConditions, seriesParams, seriesJoins, 'csd', 'co_net');
-  const needsNetworkJoin = seriesJoins.some(j => j.includes('Cached_Network_Observation'));
-  const networkSeriesJoinSql = needsNetworkJoin
-    ? 'INNER JOIN usanpn2.Cached_Observation co_net ON co_net.Series_ID = csd.Series_ID '
-    : '';
 
   // additional_field support (CSD-only fields directly; CO-side via aggregated subquery)
   const requestedAdditional = withPhenoClassDefaults(resolveAdditionalFields(p), p);
@@ -1280,7 +1290,7 @@ router.all('/get_site_level_data', async (req, res) => {
     INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
     LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
     LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
-    ${networkSeriesJoinSql}${seriesJoins.join(' ')}
+    ${seriesJoins.join(' ')}
     ${coAggJoinSql}
     WHERE 1=1 ${seriesWhere}
   `;
