@@ -7,10 +7,11 @@ const mysqlPoolDefaults = {
   connectionLimit: 10,
   queueLimit: 0,
   dateStrings: true,
-  // 30s (was 10s): the single Node event loop can stall under concurrent heavy
-  // processing, which delays mysql2's connect-timeout timer and trips spurious
-  // ETIMEDOUTs even though RDS is healthy. A longer timeout rides out brief stalls.
-  connectTimeout: 30000,
+  // 15s: a longer-than-default timeout rides out brief event-loop stalls (which
+  // delay mysql2's connect-timeout timer and trip spurious ETIMEDOUTs even when RDS
+  // is healthy), but not so long that a genuinely stuck connect hangs the request.
+  // Clustering (multiple workers) is the primary mitigation for the stalls.
+  connectTimeout: 15000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 };
@@ -46,13 +47,13 @@ const npnConfig = {
   database: process.env.OPS_USANPN_DATABASE,
 };
 
-// Main pool for the fast metadata/CRUD endpoints. Generous limit (RDS max_connections
-// is ~1284 with peak usage ~90, so there is ample headroom) so these short queries
-// effectively never queue behind anything.
+// Main pool for the fast metadata/CRUD endpoints. PER-WORKER limit; with 2 cluster
+// workers this is ~40 total, well under RDS max_connections (~1284, peak ~90).
+// Kept modest per worker so a burst opens fewer simultaneous connections at once.
 const npnPool = addQueryRetry(mysql.createPool({
   ...npnConfig,
   ...mysqlPoolDefaults,
-  connectionLimit: 40,
+  connectionLimit: 20,
 }));
 
 // Dedicated pool for the heavy streaming download endpoints (get_observations,
@@ -64,8 +65,8 @@ const npnPool = addQueryRetry(mysql.createPool({
 const npnDownloadPool = mysql.createPool({
   ...npnConfig,
   ...mysqlPoolDefaults,
-  connectionLimit: 10,
-  queueLimit: 20,
+  connectionLimit: 5,
+  queueLimit: 10,
 });
 
 const drupalPool = addQueryRetry(mysql.createPool({

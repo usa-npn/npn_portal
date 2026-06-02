@@ -82,14 +82,53 @@ app.use((req, res) => {
 // ── Global error handler ──────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // A client aborting a request mid-upload (common when the viz tool fires many
+  // large POSTs and cancels queued ones) surfaces as a raw-body BadRequestError.
+  // The socket is already gone, so just note it quietly — it is not a 500.
+  if (err && (err.type === 'request.aborted' || err.code === 'ECONNABORTED')) {
+    console.warn('Request aborted by client:', req.method, req.path);
+    return;
+  }
   console.error('Unhandled error:', err);
+  if (res.headersSent) return; // response already (partly) streamed; can't send JSON
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
+// Run a small cluster so a heavy/synchronous request (e.g. the activity-curve
+// magnitude POSTs) blocking one worker's event loop doesn't stall the others.
+// The host has 2 cores; default to 2 workers (override with NPN_PORTAL_WORKERS).
 const PORT = process.env.NPN_PORTAL_PORT || 3005;
-app.listen(PORT, () => {
-  console.log(`NPN Portal Express API listening on port ${PORT}`);
-});
+const cluster = require('cluster');
+const WORKERS = parseInt(process.env.NPN_PORTAL_WORKERS || '2', 10);
+
+if (cluster.isPrimary && WORKERS > 1) {
+  console.log(`NPN Portal primary ${process.pid} starting ${WORKERS} workers`);
+  let shuttingDown = false;
+  for (let i = 0; i < WORKERS; i++) cluster.fork();
+
+  cluster.on('exit', (worker, code, signal) => {
+    if (shuttingDown) {
+      // During systemctl stop/restart: don't respawn; exit once all workers are gone.
+      if (Object.keys(cluster.workers).length === 0) process.exit(0);
+      return;
+    }
+    console.error(`Worker ${worker.process.pid} exited (${signal || code}); restarting`);
+    cluster.fork();
+  });
+
+  // Clean shutdown: on SIGTERM/SIGINT (systemctl stop/restart) stop respawning and
+  // forward the signal to workers; the primary exits when the last worker is gone.
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => {
+      shuttingDown = true;
+      for (const id in cluster.workers) cluster.workers[id].process.kill(sig);
+    });
+  }
+} else {
+  app.listen(PORT, () => {
+    console.log(`NPN Portal Express API listening on port ${PORT} (pid ${process.pid})`);
+  });
+}
 
 module.exports = app;
