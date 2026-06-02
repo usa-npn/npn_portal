@@ -5,6 +5,33 @@ const checkProperty = require('../utils/checkProperty');
 const arrayWrap = require('../utils/arrayWrap');
 const resolveBooleanText = require('../utils/resolveBooleanText');
 
+// Streaming download endpoints hold a dedicated connection while MySQL grinds
+// through heavy CTE/aggregation queries. Two protections, matching what the old
+// CakePHP generic_observation_search.php relied on (net_*_timeout) plus a new
+// backstop the old code lacked:
+//   - net_write_timeout/net_read_timeout = 300: abort a query whose stream has
+//     stalled because the client stopped reading (5 min), as the PHP code set.
+//   - max_execution_time = 9000000 (2.5h): hard wall-clock cap on the SELECT so
+//     a query that hangs server-side (e.g. stuck in aggregation before emitting
+//     a row) can never run for hours. Legitimate long exports finish under this.
+async function configureStreamSession(conn) {
+  await conn.query(
+    'SET SESSION net_write_timeout = 300, net_read_timeout = 300, max_execution_time = 9000000'
+  );
+}
+
+// rawConn.destroy() only tears down the Node-side socket; MySQL keeps executing
+// the query until it next tries to write a row, so a query stuck in aggregation
+// runs to completion even though nobody is listening. Issue KILL QUERY from a
+// separate pool connection to actually stop it server-side, then destroy.
+function killStreamQuery(rawConn) {
+  const threadId = rawConn.threadId;
+  rawConn.destroy();
+  if (threadId) {
+    npnPool.query('KILL QUERY ' + Number(threadId)).catch(() => {});
+  }
+}
+
 // Climate fields that get auto-enabled when climate_data=1 is requested.
 // Matches PHP generic_observation_search.php $climate_data_selected.
 const CLIMATE_FIELDS = [
@@ -826,6 +853,7 @@ router.all('/get_observations', async (req, res) => {
   let conn;
   try {
     conn = await npnPool.getConnection();
+    await configureStreamSession(conn);
   } catch (err) {
     console.error('get_observations error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -866,7 +894,7 @@ router.all('/get_observations', async (req, res) => {
 
   res.on('drain', () => rawConn.resume());
 
-  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
 
   q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
 
@@ -1062,6 +1090,7 @@ router.all('/get_summarized_data', async (req, res) => {
   let conn;
   try {
     conn = await npnPool.getConnection();
+    await configureStreamSession(conn);
   } catch (err) {
     console.error('get_summarized_data error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -1097,7 +1126,7 @@ router.all('/get_summarized_data', async (req, res) => {
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
   q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_summarized_data stream error:', err.message);
@@ -1275,6 +1304,7 @@ router.all('/get_site_level_data', async (req, res) => {
   let conn;
   try {
     conn = await npnPool.getConnection();
+    await configureStreamSession(conn);
   } catch (err) {
     console.error('get_site_level_data error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -1348,7 +1378,7 @@ router.all('/get_site_level_data', async (req, res) => {
   });
 
   let ended = false;
-  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
 
   q.on('end', () => {
     if (ended) { release(); return; }
@@ -1623,6 +1653,7 @@ router.all('/get_magnitude_data', async (req, res) => {
   try {
     conn = await npnPool.getConnection();
     await conn.query('SET SESSION group_concat_max_len = 10000000');
+    await configureStreamSession(conn);
   } catch (err) {
     console.error('get_magnitude_data error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -1800,7 +1831,7 @@ router.all('/get_magnitude_data', async (req, res) => {
 
   let ended = false;
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
   q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_magnitude_data stream error:', err.message);
@@ -1843,6 +1874,7 @@ router.all('/get_observation_group_details', async (req, res) => {
   let conn;
   try {
     conn = await npnPool.getConnection();
+    await configureStreamSession(conn);
   } catch (err) {
     console.error('get_observation_group_details error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -1869,7 +1901,7 @@ router.all('/get_observation_group_details', async (req, res) => {
   });
 
   res.on('drain', () => rawConn.resume());
-  req.on('close', () => { ended = true; released = true; rawConn.destroy(); });
+  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
   q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
   q.on('error', (err) => {
     console.error('get_observation_group_details stream error:', err.message);
