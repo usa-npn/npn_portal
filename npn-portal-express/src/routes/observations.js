@@ -1604,6 +1604,10 @@ router.all('/get_magnitude_data', async (req, res) => {
   const sql = `
     SELECT
       csd.Species_ID                                                  AS species_id,
+      MAX(csd.Class_ID)                                               AS class_id,
+      MAX(csd.Order_ID)                                               AS order_id,
+      MAX(csd.Family_ID)                                              AS family_id,
+      MAX(csd.Genus_ID)                                               AS genus_id,
       csd.Genus                                                       AS genus,
       csd.Species                                                     AS species,
       csd.Common_Name                                                 AS common_name,
@@ -1810,6 +1814,10 @@ router.all('/get_magnitude_data', async (req, res) => {
 
     const transformed = {
       species_id: r.species_id,
+      class_id: r.class_id,
+      order_id: r.order_id,
+      family_id: r.family_id,
+      genus_id: r.genus_id,
       genus: r.genus,
       species: r.species,
       common_name: r.common_name,
