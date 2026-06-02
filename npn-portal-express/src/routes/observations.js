@@ -1670,7 +1670,11 @@ router.all('/get_magnitude_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnDownloadPool.getConnection();
+    // get_magnitude_data lives on npnPool, not npnDownloadPool: the activity-curve
+    // client fans out many concurrent magnitude requests (one per time bin per year),
+    // which the small throttled download pool would bottleneck/reject. These are
+    // interactive, moderately-sized queries, not bulk streaming exports.
+    conn = await npnPool.getConnection();
     await conn.query('SET SESSION group_concat_max_len = 10000000');
     await configureStreamSession(conn);
   } catch (err) {
