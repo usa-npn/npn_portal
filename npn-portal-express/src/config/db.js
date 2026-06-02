@@ -7,10 +7,37 @@ const mysqlPoolDefaults = {
   connectionLimit: 10,
   queueLimit: 0,
   dateStrings: true,
-  connectTimeout: 10000,
+  // 30s (was 10s): the single Node event loop can stall under concurrent heavy
+  // processing, which delays mysql2's connect-timeout timer and trips spurious
+  // ETIMEDOUTs even though RDS is healthy. A longer timeout rides out brief stalls.
+  connectTimeout: 30000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 };
+
+const TRANSIENT_CONNECT_ERRORS = new Set(['ETIMEDOUT', 'ECONNREFUSED']);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Wrap a pool's query() so a transient CONNECTION-ESTABLISHMENT failure is retried
+// rather than surfacing as a 500. We only retry ETIMEDOUT/ECONNREFUSED — errors that
+// occur while acquiring/opening a connection, before the query is sent — so a retry
+// cannot double-execute a statement. SQL errors and mid-flight errors pass through
+// untouched. This absorbs the spurious connect ETIMEDOUTs caused by event-loop stalls
+// (e.g. a burst of metadata requests behind a heavy stream).
+function addQueryRetry(pool, { retries = 2, baseDelayMs = 250 } = {}) {
+  const original = pool.query.bind(pool);
+  pool.query = async (...args) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await original(...args);
+      } catch (err) {
+        if (attempt >= retries || !TRANSIENT_CONNECT_ERRORS.has(err && err.code)) throw err;
+        await sleep(baseDelayMs * (attempt + 1));
+      }
+    }
+  };
+  return pool;
+}
 
 const npnConfig = {
   host: process.env.OPS_USANPN_HOST,
@@ -22,11 +49,11 @@ const npnConfig = {
 // Main pool for the fast metadata/CRUD endpoints. Generous limit (RDS max_connections
 // is ~1284 with peak usage ~90, so there is ample headroom) so these short queries
 // effectively never queue behind anything.
-const npnPool = mysql.createPool({
+const npnPool = addQueryRetry(mysql.createPool({
   ...npnConfig,
   ...mysqlPoolDefaults,
   connectionLimit: 40,
-});
+}));
 
 // Dedicated pool for the heavy streaming download endpoints (get_observations,
 // get_summarized_data, get_site_level_data, get_magnitude_data,
@@ -41,13 +68,13 @@ const npnDownloadPool = mysql.createPool({
   queueLimit: 20,
 });
 
-const drupalPool = mysql.createPool({
+const drupalPool = addQueryRetry(mysql.createPool({
   host: process.env.OPS_DRUPAL_HOST,
   user: process.env.OPS_DRUPAL_USER,
   password: process.env.OPS_DRUPAL_PASSWORD,
   database: process.env.OPS_DRUPAL_DATABASE,
   ...mysqlPoolDefaults,
-});
+}));
 
 const gisPool = new Pool({
   host: process.env.PGHOST,
