@@ -214,7 +214,34 @@ router.all('/get_stations_by_location', async (req, res) => {
       return res.json(rows);
     }
 
-    return res.status(400).json({ error: 'Provide bounding box or latitude/longitude/radius_km' });
+    // WKT polygon mode
+    if (checkProperty(p, 'wkt')) {
+      const conditions = [
+        `ST_Contains(ST_GeomFromText(?), ST_GeomFromText(CONCAT('POINT(', Longitude, ' ', Latitude, ')')))`
+      ];
+      const params = [p.wkt];
+
+      if (checkProperty(p, 'person_id')) {
+        conditions.push('Observer_ID = ?');
+        params.push(p.person_id);
+      }
+
+      const [rows] = await npnPool.query(
+        `SELECT Station_ID, Station_Name, Latitude, Longitude
+         FROM usanpn2.Station
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY Station_Name ASC`,
+        params
+      );
+      return res.json(rows.map(r => ({
+        station_id: r.Station_ID,
+        station_name: r.Station_Name,
+        latitude: r.Latitude,
+        longitude: r.Longitude,
+      })));
+    }
+
+    return res.status(400).json({ error: 'Provide bounding box, latitude/longitude/radius_km, or wkt' });
   } catch (err) {
     console.error('get_stations_by_location error:', err.message);
     res.status(500).json({ error: err.message });
