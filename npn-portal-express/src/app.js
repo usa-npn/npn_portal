@@ -126,9 +126,16 @@ if (cluster.isPrimary && WORKERS > 1) {
     });
   }
 } else {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`NPN Portal Express API listening on port ${PORT} (pid ${process.pid})`);
   });
+  // Node closes idle keep-alive connections after keepAliveTimeout (default 5s), but the
+  // Apache reverse proxy (TimeOut 600) reuses backend connections far longer — so it can
+  // send a request down a socket Node just closed → ECONNRESET → an intermittent 502 to
+  // the client with no error logged here. Hold connections longer than the proxy will.
+  // headersTimeout must be greater than keepAliveTimeout.
+  server.keepAliveTimeout = 120000; // 120s
+  server.headersTimeout = 125000;   // > keepAliveTimeout
 }
 
 module.exports = app;
