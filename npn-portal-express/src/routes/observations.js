@@ -494,9 +494,12 @@ router.all('/get_observations_count', async (req, res) => {
       }
     }
 
-    if (checkProperty(p, 'network') && String(p.network).trim()) {
-      conditions.push('csd.Partner_Group = ?');
-      params.push(p.network);
+    if (checkProperty(p, 'network')) {
+      const networks = arrayWrap(p.network).filter(n => n !== null && n !== undefined && String(n).trim() !== '');
+      if (networks.length > 0) {
+        conditions.push('csd.Partner_Group IN (?)');
+        params.push(networks);
+      }
     }
 
     if (checkProperty(p, 'species_id')) {
@@ -1579,14 +1582,52 @@ router.all('/get_magnitude_data', async (req, res) => {
   const phenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
   const taxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
 
-  const groupByCols = [];
+  // GROUP BY mirrors legacy magnitude_data_search.php. The base grouping is
+  // per (Phenophase_ID, Species_ID). When taxonomy_aggregate is set together
+  // with a higher-rank taxon filter (genus/family/order/class), the rows are
+  // rolled up to that rank and Species_ID drops out of the grouping. When
+  // pheno_class_aggregate is set, Phenophase_ID is replaced by Pheno_Class_ID
+  // and — unless taxonomy is being split by rank — Species_ID is dropped too,
+  // collapsing every species sharing the pheno class into a single curve.
+  const groupByCols = ['csd.Phenophase_ID', 'csd.Species_ID'];
+  const removeGroupBy = (col) => {
+    const i = groupByCols.indexOf(col);
+    if (i >= 0) groupByCols.splice(i, 1);
+  };
+
+  // Each taxonomic rank is an independent legacy `if` block: any rank present
+  // (with taxonomy_aggregate) is appended to the grouping and removes Species_ID.
+  const taxRanks = [];
+  if (taxonomyAggregate) {
+    if (checkProperty(p, 'genus_id')) taxRanks.push('csd.Genus_ID');
+    if (checkProperty(p, 'family_id')) taxRanks.push('csd.Family_ID');
+    if (checkProperty(p, 'order_id')) taxRanks.push('csd.Order_ID');
+    if (checkProperty(p, 'class_id')) taxRanks.push('csd.Class_ID');
+  }
+  if (taxRanks.length > 0) {
+    for (const rank of taxRanks) groupByCols.push(rank);
+    removeGroupBy('csd.Species_ID');
+  }
+
   if (phenoClassAggregate) {
     groupByCols.push('csd.Pheno_Class_ID');
-    if (taxonomyAggregate) groupByCols.push('csd.Species_ID');
-  } else {
-    groupByCols.push('csd.Phenophase_ID');
-    groupByCols.push('csd.Species_ID');
+    removeGroupBy('csd.Phenophase_ID');
+    // Legacy gates this on the taxonomy_aggregate flag itself (not on whether a
+    // rank was actually supplied), so match that exactly.
+    if (!taxonomyAggregate) removeGroupBy('csd.Species_ID');
   }
+
+  // Columns that fall out of the GROUP BY must be wrapped so the query stays
+  // GROUP BY-safe regardless of the server's ONLY_FULL_GROUP_BY setting.
+  const speciesGrouped = groupByCols.includes('csd.Species_ID');
+  const phenophaseGrouped = groupByCols.includes('csd.Phenophase_ID');
+  const speciesIdSel = speciesGrouped ? 'csd.Species_ID' : 'MAX(csd.Species_ID)';
+  const genusSel = speciesGrouped ? 'csd.Genus' : 'MAX(csd.Genus)';
+  const speciesSel = speciesGrouped ? 'csd.Species' : 'MAX(csd.Species)';
+  const commonNameSel = speciesGrouped ? 'csd.Common_Name' : 'MAX(csd.Common_Name)';
+  const kingdomSel = speciesGrouped ? 'csd.Kingdom' : 'MAX(csd.Kingdom)';
+  const phenophaseIdSel = phenophaseGrouped ? 'csd.Phenophase_ID' : 'MAX(csd.Phenophase_ID)';
+  const phenophaseDescSel = phenophaseGrouped ? 'csd.Phenophase_Description' : 'MAX(csd.Phenophase_Description)';
 
   const filterWhere = filterConds.length > 0 ? 'AND ' + filterConds.join(' AND ') : '';
 
@@ -1603,17 +1644,17 @@ router.all('/get_magnitude_data', async (req, res) => {
 
   const sql = `
     SELECT
-      csd.Species_ID                                                  AS species_id,
+      ${speciesIdSel}                                                 AS species_id,
       MAX(csd.Class_ID)                                               AS class_id,
       MAX(csd.Order_ID)                                               AS order_id,
       MAX(csd.Family_ID)                                              AS family_id,
       MAX(csd.Genus_ID)                                               AS genus_id,
-      csd.Genus                                                       AS genus,
-      csd.Species                                                     AS species,
-      csd.Common_Name                                                 AS common_name,
-      csd.Kingdom                                                     AS kingdom,
-      csd.Phenophase_ID                                               AS phenophase_id,
-      csd.Phenophase_Description                                      AS phenophase_description${extraSelectCols},
+      ${genusSel}                                                     AS genus,
+      ${speciesSel}                                                   AS species,
+      ${commonNameSel}                                                AS common_name,
+      ${kingdomSel}                                                   AS kingdom,
+      ${phenophaseIdSel}                                              AS phenophase_id,
+      ${phenophaseDescSel}                                            AS phenophase_description${extraSelectCols},
       COUNT(co.Phenophase_Status)                                     AS status_records_sample_size,
       COUNT(DISTINCT csd.Individual_ID)                               AS individuals_sample_size,
       COUNT(DISTINCT csd.Site_ID)                                     AS sites_sample_size,
