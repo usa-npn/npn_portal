@@ -136,6 +136,9 @@ if (cluster.isPrimary && WORKERS > 1) {
   // headersTimeout must be greater than keepAliveTimeout.
   server.keepAliveTimeout = 120000; // 120s
   server.headersTimeout = 125000;   // > keepAliveTimeout
+
+  // Per-worker pool saturation logging, so a connection leak is visible early.
+  require('./config/db').startPoolGauge();
 }
 
 module.exports = app;
