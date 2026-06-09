@@ -33,14 +33,20 @@ function killStreamQuery(rawConn) {
 }
 
 // Idle (no-progress) backstop on a streaming download. Reset on every row and on socket
-// drain, so a long-but-actively-streaming export NEVER trips it no matter how long it
-// runs — only a query making ZERO progress (hung server-side, or a client that stopped
-// reading) for this long gets killed. MySQL's max_execution_time (2.5h, set in
-// configureStreamSession) stays the hard cap for a query stuck before its first row.
+// drain, so a long-but-actively-streaming export never trips it — only a download making
+// ZERO progress for this long (e.g. query finished but the client/proxy stopped reading,
+// so the response never drains, q.on('end') never fires, and the connection never
+// releases) gets killed and its slot reclaimed. Kept SHORT (2 min) deliberately: it
+// bounds how fast such stalls can pile up and re-wedge the small download pool.
 // Override with DOWNLOAD_STREAM_IDLE_MS.
 const STREAM_IDLE_MS = parseInt(
-  process.env.DOWNLOAD_STREAM_IDLE_MS || String(30 * 60 * 1000), 10
+  process.env.DOWNLOAD_STREAM_IDLE_MS || String(2 * 60 * 1000), 10
 );
+
+// Monotonic id for per-request stream lifecycle logging (acquire -> terminal path), so a
+// connection borrowed and never released can be traced to the exact endpoint and the
+// event that failed to fire. Temporary instrumentation while chasing the download leak.
+let streamSeq = 0;
 
 // Drive a streaming download query with a SINGLE, guaranteed cleanup of the pooled
 // connection — the fix for the slow connection leak that wedged the download pool.
@@ -59,16 +65,33 @@ const STREAM_IDLE_MS = parseInt(
 //                      res.end(); the helper ends the response.
 function streamDownload(req, res, conn, sql, params, label, { onRow, onEnd }) {
   const rawConn = conn.connection;
+  const id = ++streamSeq;
+  const t0 = Date.now();
   let settled = false;
   let succeeded = false;
   let lastProgress = Date.now();
+  let rows = 0;
+  let paused = false;
 
-  const write = (chunk) => { if (!res.write(chunk)) rawConn.pause(); };
+  console.log(`[stream] ${label} #${id} start`);
 
-  const finish = () => {
+  // Apply backpressure: pause the DB stream when the response buffer is full. The matching
+  // resume is on res 'drain'. If the client/proxy stalls and 'drain' never comes, the idle
+  // backstop below reclaims the connection. Log the pause/resume edges (not per row).
+  const write = (chunk) => {
+    if (!res.write(chunk) && !paused) {
+      paused = true;
+      console.log(`[stream] ${label} #${id} pause rows=${rows}`);
+      rawConn.pause();
+    }
+  };
+
+  const finish = (how) => {
     if (settled) return;
     settled = true;
     clearInterval(idleCheck);
+    const action = succeeded ? 'release' : 'destroy';
+    console.log(`[stream] ${label} #${id} ${how} rows=${rows} ms=${Date.now() - t0} paused=${paused} -> ${action}`);
     if (succeeded) conn.release();   // clean: query fully consumed, return to pool
     else killStreamQuery(rawConn);   // abort/error/idle: KILL + destroy (frees the slot)
   };
@@ -76,20 +99,26 @@ function streamDownload(req, res, conn, sql, params, label, { onRow, onEnd }) {
   // Poll for no-progress instead of resetting a timer per row (cheap for million-row streams).
   const idleCheck = setInterval(() => {
     if (settled || Date.now() - lastProgress < STREAM_IDLE_MS) return;
-    console.error(`${label} stream idle for ${STREAM_IDLE_MS}ms with no progress; killing query`);
+    console.error(`[stream] ${label} #${id} idle ${STREAM_IDLE_MS}ms no progress (rows=${rows} paused=${paused}); killing`);
     if (!res.headersSent) { try { res.status(503).json({ error: 'Query timed out' }); } catch (_) {} }
     else { try { res.end(']'); } catch (_) {} } // close the array so the partial body stays valid JSON
-    finish();
+    finish('idle');
   }, Math.min(STREAM_IDLE_MS, 30000));
   if (idleCheck.unref) idleCheck.unref();      // never keep the process alive for this timer
 
-  res.on('close', finish);                                    // the one guaranteed trigger
-  res.on('drain', () => { if (settled) return; lastProgress = Date.now(); rawConn.resume(); });
+  res.on('close', () => finish('res-close'));                 // fires on client disconnect / response done
+  res.on('drain', () => {
+    if (settled) return;
+    if (paused) { paused = false; console.log(`[stream] ${label} #${id} resume rows=${rows}`); }
+    lastProgress = Date.now();
+    rawConn.resume();
+  });
 
   const q = rawConn.query(sql, params);
 
   q.on('result', (row) => {
     if (settled) return;
+    rows++;
     lastProgress = Date.now();
     onRow(row, write);
   });
@@ -100,18 +129,18 @@ function streamDownload(req, res, conn, sql, params, label, { onRow, onEnd }) {
       onEnd(write);
       succeeded = true;            // only reusable if finalize did not throw
     } catch (err) {
-      console.error(`${label} finalize error:`, err.message);
+      console.error(`[stream] ${label} #${id} finalize error: ${err.message}`);
     }
     if (!res.writableEnded) { try { res.end(); } catch (_) {} }
-    finish();
+    finish('end');
   });
 
   q.on('error', (err) => {
     if (settled) return;
-    console.error(`${label} stream error:`, err.message);
+    console.error(`[stream] ${label} #${id} query error: ${err.message}`);
     if (!res.headersSent) { try { res.status(500).json({ error: err.message }); } catch (_) {} }
     else { try { res.end(']'); } catch (_) {} } // close the array so the partial body stays valid JSON
-    finish();
+    finish('error');
   });
 }
 
