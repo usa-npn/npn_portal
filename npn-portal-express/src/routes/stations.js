@@ -147,23 +147,19 @@ router.all('/get_stations_for_boundary', async (req, res) => {
     }
 
     const sql = `
-      SELECT DISTINCT
-        s.Station_ID, s.Station_Name, s.Latitude, s.Longitude, s.Observer_ID, s.State
+      SELECT DISTINCT s.Station_ID
       FROM usanpn2.Station s
       ${boundaryJoin}
       WHERE ${conditions.join(' AND ')}
-      ORDER BY s.Station_Name ASC
+      ORDER BY s.Station_ID ASC
     `;
 
+    // Legacy CakePHP getStationsForBoundary returned a flat array of Station_IDs, not
+    // station objects. Clients (e.g. the viz tool) pass this result straight into a
+    // station_id[] filter, so the response must stay a bare ID list for parity — an
+    // object array stringifies to "[object Object]" downstream and breaks those calls.
     const [rows] = await npnPool.query(sql, params);
-    res.json(rows.map(r => ({
-      station_id: r.Station_ID,
-      station_name: r.Station_Name,
-      latitude: r.Latitude,
-      longitude: r.Longitude,
-      observer_id: r.Observer_ID,
-      state: r.State,
-    })));
+    res.json(rows.map(r => r.Station_ID));
   } catch (err) {
     console.error('get_stations_for_boundary error:', err.message);
     res.status(500).json({ error: err.message });
