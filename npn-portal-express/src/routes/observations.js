@@ -32,6 +32,89 @@ function killStreamQuery(rawConn) {
   }
 }
 
+// Idle (no-progress) backstop on a streaming download. Reset on every row and on socket
+// drain, so a long-but-actively-streaming export NEVER trips it no matter how long it
+// runs — only a query making ZERO progress (hung server-side, or a client that stopped
+// reading) for this long gets killed. MySQL's max_execution_time (2.5h, set in
+// configureStreamSession) stays the hard cap for a query stuck before its first row.
+// Override with DOWNLOAD_STREAM_IDLE_MS.
+const STREAM_IDLE_MS = parseInt(
+  process.env.DOWNLOAD_STREAM_IDLE_MS || String(30 * 60 * 1000), 10
+);
+
+// Drive a streaming download query with a SINGLE, guaranteed cleanup of the pooled
+// connection — the fix for the slow connection leak that wedged the download pool.
+//
+// The connection is released back to the pool on clean completion, or destroyed (and
+// its server-side query KILLed) on client-abort, stream error, or idle timeout. Cleanup
+// is idempotent (`settled` guard) and the catch-all trigger is res 'close', which ALWAYS
+// fires — on normal finish AND on client disconnect. Critically, the connection is only
+// marked reusable (`succeeded`) once onEnd returns without throwing, so even a throw
+// while building the response body destroys the connection rather than leaking the slot.
+//
+//   onRow(row, write)  per result row. `write(chunk)` writes to the response and applies
+//                      backpressure (pauses the query when the socket buffer is full).
+//   onEnd(write)       once after the last row, before release, to finalize the body
+//                      (write the closing bracket, or flush an aggregate). Must NOT call
+//                      res.end(); the helper ends the response.
+function streamDownload(req, res, conn, sql, params, label, { onRow, onEnd }) {
+  const rawConn = conn.connection;
+  let settled = false;
+  let succeeded = false;
+  let lastProgress = Date.now();
+
+  const write = (chunk) => { if (!res.write(chunk)) rawConn.pause(); };
+
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearInterval(idleCheck);
+    if (succeeded) conn.release();   // clean: query fully consumed, return to pool
+    else killStreamQuery(rawConn);   // abort/error/idle: KILL + destroy (frees the slot)
+  };
+
+  // Poll for no-progress instead of resetting a timer per row (cheap for million-row streams).
+  const idleCheck = setInterval(() => {
+    if (settled || Date.now() - lastProgress < STREAM_IDLE_MS) return;
+    console.error(`${label} stream idle for ${STREAM_IDLE_MS}ms with no progress; killing query`);
+    if (!res.headersSent) { try { res.status(503).json({ error: 'Query timed out' }); } catch (_) {} }
+    else { try { res.end(']'); } catch (_) {} } // close the array so the partial body stays valid JSON
+    finish();
+  }, Math.min(STREAM_IDLE_MS, 30000));
+  if (idleCheck.unref) idleCheck.unref();      // never keep the process alive for this timer
+
+  res.on('close', finish);                                    // the one guaranteed trigger
+  res.on('drain', () => { if (settled) return; lastProgress = Date.now(); rawConn.resume(); });
+
+  const q = rawConn.query(sql, params);
+
+  q.on('result', (row) => {
+    if (settled) return;
+    lastProgress = Date.now();
+    onRow(row, write);
+  });
+
+  q.on('end', () => {
+    if (settled) return;
+    try {
+      onEnd(write);
+      succeeded = true;            // only reusable if finalize did not throw
+    } catch (err) {
+      console.error(`${label} finalize error:`, err.message);
+    }
+    if (!res.writableEnded) { try { res.end(); } catch (_) {} }
+    finish();
+  });
+
+  q.on('error', (err) => {
+    if (settled) return;
+    console.error(`${label} stream error:`, err.message);
+    if (!res.headersSent) { try { res.status(500).json({ error: err.message }); } catch (_) {} }
+    else { try { res.end(']'); } catch (_) {} } // close the array so the partial body stays valid JSON
+    finish();
+  });
+}
+
 // Climate fields that get auto-enabled when climate_data=1 is requested.
 // Matches PHP generic_observation_search.php $climate_data_selected.
 const CLIMATE_FIELDS = [
@@ -974,52 +1057,31 @@ router.all('/get_observations', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  const rawConn = conn.connection;
-  let released = false;
-  const release = () => { if (!released) { released = true; conn.release(); } };
-
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
-  let ended = false;
 
-  const q = rawConn.query(sql, params);
-
-  q.on('result', (row) => {
-    if (ended) return;
-    const base = {
-      ...row,
-      update_datetime: row.update_datetime !== null ? row.update_datetime : -9999,
-      intensity_value: (row.intensity_value === null || row.intensity_value === '-9999') ? -9999 : row.intensity_value,
-    };
-    for (const key of extraKeys) {
-      const raw = row[key];
-      if (raw === null || raw === undefined) {
-        base[key] = -9999;
-      } else if (ADDITIONAL_FIELD_MAP[key].decimal) {
-        base[key] = parseFloat(raw);
-      } else {
-        base[key] = raw;
+  streamDownload(req, res, conn, sql, params, 'get_observations', {
+    onRow: (row, write) => {
+      const base = {
+        ...row,
+        update_datetime: row.update_datetime !== null ? row.update_datetime : -9999,
+        intensity_value: (row.intensity_value === null || row.intensity_value === '-9999') ? -9999 : row.intensity_value,
+      };
+      for (const key of extraKeys) {
+        const raw = row[key];
+        if (raw === null || raw === undefined) {
+          base[key] = -9999;
+        } else if (ADDITIONAL_FIELD_MAP[key].decimal) {
+          base[key] = parseFloat(raw);
+        } else {
+          base[key] = raw;
+        }
       }
-    }
-    const chunk = (first ? '' : ',') + JSON.stringify(base);
-    first = false;
-    if (!res.write(chunk)) rawConn.pause();
-  });
-
-  res.on('drain', () => rawConn.resume());
-
-  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
-
-  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
-
-  q.on('error', (err) => {
-    console.error('get_observations stream error:', err.message);
-    if (ended) { release(); return; }
-    ended = true;
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-    else { try { res.end(']'); } catch (_) {} }
-    release();
+      write((first ? '' : ',') + JSON.stringify(base));
+      first = false;
+    },
+    onEnd: (write) => write(']'),
   });
 });
 
@@ -1160,45 +1222,27 @@ router.all('/get_summarized_data', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  const rawConn = conn.connection;
-  let released = false;
-  const release = () => { if (!released) { released = true; conn.release(); } };
-
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
-  let ended = false;
 
-  const q = rawConn.query(sql, params);
-
-  q.on('result', (row) => {
-    if (ended) return;
-    const out = {
-      ...row,
-      first_yes_julian_date: parseInt(row.first_yes_julian_date, 10),
-      last_yes_julian_date: parseInt(row.last_yes_julian_date, 10),
-    };
-    for (const { key, decimal } of responseAdditionalKeys) {
-      const raw = row[key];
-      if (raw === null || raw === undefined) out[key] = -9999;
-      else if (decimal) out[key] = parseFloat(raw);
-      else out[key] = raw;
-    }
-    const chunk = (first ? '' : ',') + JSON.stringify(out);
-    first = false;
-    if (!res.write(chunk)) rawConn.pause();
-  });
-
-  res.on('drain', () => rawConn.resume());
-  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
-  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
-  q.on('error', (err) => {
-    console.error('get_summarized_data stream error:', err.message);
-    if (ended) { release(); return; }
-    ended = true;
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-    else { try { res.end(']'); } catch (_) {} }
-    release();
+  streamDownload(req, res, conn, sql, params, 'get_summarized_data', {
+    onRow: (row, write) => {
+      const out = {
+        ...row,
+        first_yes_julian_date: parseInt(row.first_yes_julian_date, 10),
+        last_yes_julian_date: parseInt(row.last_yes_julian_date, 10),
+      };
+      for (const { key, decimal } of responseAdditionalKeys) {
+        const raw = row[key];
+        if (raw === null || raw === undefined) out[key] = -9999;
+        else if (decimal) out[key] = parseFloat(raw);
+        else out[key] = raw;
+      }
+      write((first ? '' : ',') + JSON.stringify(out));
+      first = false;
+    },
+    onEnd: (write) => write(']'),
   });
 });
 
@@ -1328,15 +1372,9 @@ router.all('/get_site_level_data', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  const rawConn = conn.connection;
-  let released = false;
-  const release = () => { if (!released) { released = true; conn.release(); } };
-
   const siteMap = new Map();
 
-  const q = rawConn.query(sql, params);
-
-  q.on('result', (r) => {
+  const onRow = (r) => {
     const julianFirst = parseInt(r.first_yes_julian_date, 10);
     const julianLast = parseInt(r.last_yes_julian_date, 10);
     const daysSince = r.numdays_since_prior_no;
@@ -1397,14 +1435,9 @@ router.all('/get_site_level_data', async (req, res) => {
       site.lastDoys.push(r.last_yes_doy);
       site.lastDaysUntil.push(daysUntil);
     }
-  });
+  };
 
-  let ended = false;
-  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
-
-  q.on('end', () => {
-    if (ended) { release(); return; }
-    ended = true;
+  const onEnd = (write) => {
     const result = [];
     for (const site of siteMap.values()) {
       const nFirst = site.firstJulians.length;
@@ -1478,25 +1511,16 @@ router.all('/get_site_level_data', async (req, res) => {
     result.sort((a, b) => a.site_id - b.site_id || a.species_id - b.species_id || (a.phenophase_id || 0) - (b.phenophase_id || 0));
 
     res.setHeader('Content-Type', 'application/json');
-    res.write('[');
+    write('[');
     let first = true;
     for (const item of result) {
-      res.write((first ? '' : ',') + JSON.stringify(item));
+      write((first ? '' : ',') + JSON.stringify(item));
       first = false;
     }
-    res.write(']');
-    res.end();
-    release();
-  });
+    write(']');
+  };
 
-  q.on('error', (err) => {
-    console.error('get_site_level_data stream error:', err.message);
-    if (ended) { release(); return; }
-    ended = true;
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-    else { try { res.end(']'); } catch (_) {} }
-    release();
-  });
+  streamDownload(req, res, conn, sql, params, 'get_site_level_data', { onRow, onEnd });
 });
 
 // GET /get_magnitude_data
@@ -1728,17 +1752,11 @@ router.all('/get_magnitude_data', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  const rawConn = conn.connection;
-  let released = false;
-  const release = () => { if (!released) { released = true; conn.release(); } };
-
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
 
-  const q = rawConn.query(sql, [startDate, endDate, ...filterParams]);
-
-  q.on('result', (r) => {
+  const onRow = (r, write) => {
     const sampleDt = new Date(r.sample_date + 'T00:00:00Z');
     const period = periods.find(per => sampleDt >= per.start && sampleDt <= per.end) || periods[0];
 
@@ -1897,22 +1915,13 @@ router.all('/get_magnitude_data', async (req, res) => {
       'se_numanimals_in-phase_per_hr_per_acre': sePerAcre,
     };
 
-    const chunk = (first ? '' : ',') + JSON.stringify(transformed);
+    write((first ? '' : ',') + JSON.stringify(transformed));
     first = false;
-    if (!res.write(chunk)) rawConn.pause();
-  });
+  };
 
-  let ended = false;
-  res.on('drain', () => rawConn.resume());
-  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
-  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
-  q.on('error', (err) => {
-    console.error('get_magnitude_data stream error:', err.message);
-    if (ended) { release(); return; }
-    ended = true;
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-    else { try { res.end(']'); } catch (_) {} }
-    release();
+  streamDownload(req, res, conn, sql, [startDate, endDate, ...filterParams], 'get_magnitude_data', {
+    onRow,
+    onEnd: (write) => write(']'),
   });
 });
 
@@ -1954,36 +1963,18 @@ router.all('/get_observation_group_details', async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 
-  const rawConn = conn.connection;
-  let released = false;
-  const release = () => { if (!released) { released = true; conn.release(); } };
-
   res.setHeader('Content-Type', 'application/json');
   res.write('[');
   let first = true;
-  let ended = false;
 
-  const q = rawConn.query(sql, params);
-
-  q.on('result', (row) => {
-    if (ended) return;
-    const chunk = (first ? '' : ',') + JSON.stringify(
-      Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase(), v]))
-    );
-    first = false;
-    if (!res.write(chunk)) rawConn.pause();
-  });
-
-  res.on('drain', () => rawConn.resume());
-  req.on('close', () => { if (ended) return; ended = true; released = true; killStreamQuery(rawConn); });
-  q.on('end', () => { if (ended) return; ended = true; res.write(']'); res.end(); release(); });
-  q.on('error', (err) => {
-    console.error('get_observation_group_details stream error:', err.message);
-    if (ended) { release(); return; }
-    ended = true;
-    if (!res.headersSent) res.status(500).json({ error: err.message });
-    else { try { res.end(']'); } catch (_) {} }
-    release();
+  streamDownload(req, res, conn, sql, params, 'get_observation_group_details', {
+    onRow: (row, write) => {
+      write((first ? '' : ',') + JSON.stringify(
+        Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase(), v]))
+      ));
+      first = false;
+    },
+    onEnd: (write) => write(']'),
   });
 });
 

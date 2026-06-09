@@ -62,11 +62,15 @@ const npnPool = addQueryRetry(mysql.createPool({
 // the scarce resource is DB CPU/IO, not connection slots, so this bounds how many
 // heavy queries run at once. A bounded queue makes excess download requests fail
 // fast instead of starving npnPool or hanging the whole API.
+// connectionLimit was 5: too tight now that multiple clients (pop-services, the viz
+// tool, the rnpn R package) each run legitimate multi-minute downloads concurrently —
+// a handful saturates the pool even with zero leaks. Bounded queue still makes excess
+// requests fail fast rather than starving npnPool. Both env-overridable for live tuning.
 const npnDownloadPool = mysql.createPool({
   ...npnConfig,
   ...mysqlPoolDefaults,
-  connectionLimit: 5,
-  queueLimit: 10,
+  connectionLimit: parseInt(process.env.DOWNLOAD_POOL_LIMIT || '10', 10),
+  queueLimit: parseInt(process.env.DOWNLOAD_POOL_QUEUE || '20', 10),
 });
 
 const drupalPool = addQueryRetry(mysql.createPool({
@@ -88,4 +92,24 @@ const gisPool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-module.exports = { npnPool, npnDownloadPool, drupalPool, gisPool };
+// Periodic visibility into pool saturation. A connection leak (the kind that silently
+// wedged the download pool for days) shows up here as a non-recovering drop in `free`
+// with `queued` climbing — long before clients see "Queue limit reached". Logged per
+// worker every POOL_GAUGE_MS (set to 0 to disable).
+function startPoolGauge(intervalMs = parseInt(process.env.POOL_GAUGE_MS || '60000', 10)) {
+  if (!intervalMs) return null;
+  const snap = (p) => {
+    const core = p.pool || p; // mysql2/promise wraps the core callback pool as `.pool`
+    const all = core._allConnections ? core._allConnections.length : -1;
+    const free = core._freeConnections ? core._freeConnections.length : -1;
+    const queued = core._connectionQueue ? core._connectionQueue.length : -1;
+    return `all=${all} active=${all - free} free=${free} queued=${queued}`;
+  };
+  const timer = setInterval(() => {
+    console.log(`[pool] download ${snap(npnDownloadPool)} | main ${snap(npnPool)}`);
+  }, intervalMs);
+  if (timer.unref) timer.unref(); // never keep the process alive for the gauge alone
+  return timer;
+}
+
+module.exports = { npnPool, npnDownloadPool, drupalPool, gisPool, startPoolGauge };
