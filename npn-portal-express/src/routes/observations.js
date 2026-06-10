@@ -20,6 +20,30 @@ async function configureStreamSession(conn) {
   );
 }
 
+// Hard cap on the pre-stream session setup (getConnection's SET SESSION queries). A pooled
+// connection that has gone half-dead — server-side idle reap, RDS failover, a network blip
+// during a quiet stretch — accepts the write but never answers. And max_execution_time
+// isn't in effect yet (it's set BY this query), so there is no server-side cap: the SET
+// hangs forever, pinning the pool slot BEFORE streamDownload is ever reached. No
+// [stream] start, no res 'close' to trigger cleanup — so a burst can stall every slot this
+// way and wedge the whole download pool to zero throughput ("Queue limit reached."). Bound
+// it: on timeout we reject, the handler's catch destroys the connection (freeing the slot),
+// and the original query is allowed to settle late into a swallowed no-op.
+const STREAM_SETUP_TIMEOUT_MS = parseInt(
+  process.env.DOWNLOAD_SETUP_TIMEOUT_MS || '15000', 10
+);
+function withSetupTimeout(promise, label) {
+  promise.catch(() => {}); // swallow a late rejection after we've already moved on
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      console.error(`[stream] ${label} session setup exceeded ${STREAM_SETUP_TIMEOUT_MS}ms -> destroy`);
+      reject(new Error('stream session setup timed out'));
+    }, STREAM_SETUP_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // rawConn.destroy() only tears down the Node-side socket; MySQL keeps executing
 // the query until it next tries to write a row, so a query stuck in aggregation
 // runs to completion even though nobody is listening. Issue KILL QUERY from a
@@ -1095,11 +1119,11 @@ router.all('/get_observations', async (req, res) => {
   let conn;
   try {
     conn = await npnDownloadPool.getConnection();
-    await configureStreamSession(conn);
+    await withSetupTimeout(configureStreamSession(conn), 'get_observations');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
+    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
     console.error('get_observations error:', err.message);
     if (!res.headersSent) return res.status(500).json({ error: err.message });
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
@@ -1262,11 +1286,11 @@ router.all('/get_summarized_data', async (req, res) => {
   let conn;
   try {
     conn = await npnDownloadPool.getConnection();
-    await configureStreamSession(conn);
+    await withSetupTimeout(configureStreamSession(conn), 'get_summarized_data');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
+    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
     console.error('get_summarized_data error:', err.message);
     if (!res.headersSent) return res.status(500).json({ error: err.message });
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
@@ -1414,9 +1438,9 @@ router.all('/get_site_level_data', async (req, res) => {
   let conn;
   try {
     conn = await npnDownloadPool.getConnection();
-    await configureStreamSession(conn);
+    await withSetupTimeout(configureStreamSession(conn), 'get_site_level_data');
   } catch (err) {
-    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
+    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
     console.error('get_site_level_data error:', err.message);
     return res.status(500).json({ error: err.message });
   }
@@ -1793,12 +1817,14 @@ router.all('/get_magnitude_data', async (req, res) => {
     // which the small throttled download pool would bottleneck/reject. These are
     // interactive, moderately-sized queries, not bulk streaming exports.
     conn = await npnPool.getConnection();
-    await conn.query('SET SESSION group_concat_max_len = 10000000');
-    await configureStreamSession(conn);
+    await withSetupTimeout((async () => {
+      await conn.query('SET SESSION group_concat_max_len = 10000000');
+      await configureStreamSession(conn);
+    })(), 'get_magnitude_data');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
+    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
     console.error('get_magnitude_data error:', err.message);
     if (!res.headersSent) return res.status(500).json({ error: err.message });
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
@@ -2007,11 +2033,11 @@ router.all('/get_observation_group_details', async (req, res) => {
   let conn;
   try {
     conn = await npnDownloadPool.getConnection();
-    await configureStreamSession(conn);
+    await withSetupTimeout(configureStreamSession(conn), 'get_observation_group_details');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
+    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
     console.error('get_observation_group_details error:', err.message);
     if (!res.headersSent) return res.status(500).json({ error: err.message });
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
