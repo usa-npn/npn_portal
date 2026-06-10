@@ -66,6 +66,19 @@ let streamSeq = 0;
 function streamDownload(req, res, conn, sql, params, label, { onRow, onEnd }) {
   const rawConn = conn.connection;
   const id = ++streamSeq;
+
+  // SETUP-GAP GUARD: if the client disconnected during connection setup (the
+  // getConnection + configureStreamSession awaits), res has ALREADY emitted 'close', so
+  // the res.on('close') cleanup registered below would never fire and the borrowed slot
+  // would leak with no [stream] lifecycle logged. Reclaim it immediately. This is the
+  // residual leak that slowly drove the download pool's idle `active` floor upward
+  // between restarts (1 -> 3+ over a day) toward an eventual re-wedge.
+  if (res.writableEnded || res.destroyed) {
+    console.warn(`[stream] ${label} #${id} client gone before start -> destroy`);
+    try { conn.destroy(); } catch (_) {}
+    return;
+  }
+
   const t0 = Date.now();
   let settled = false;
   let succeeded = false;
@@ -1083,14 +1096,16 @@ router.all('/get_observations', async (req, res) => {
   try {
     conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
+    res.setHeader('Content-Type', 'application/json');
+    res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
+    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
     console.error('get_observations error:', err.message);
-    return res.status(500).json({ error: err.message });
+    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    try { res.end(); } catch (_) {} // headers already flushed; just close the socket
+    return;
   }
 
-  res.setHeader('Content-Type', 'application/json');
-  res.write('[');
   let first = true;
 
   streamDownload(req, res, conn, sql, params, 'get_observations', {
@@ -1248,14 +1263,16 @@ router.all('/get_summarized_data', async (req, res) => {
   try {
     conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
+    res.setHeader('Content-Type', 'application/json');
+    res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
+    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
     console.error('get_summarized_data error:', err.message);
-    return res.status(500).json({ error: err.message });
+    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    try { res.end(); } catch (_) {} // headers already flushed; just close the socket
+    return;
   }
 
-  res.setHeader('Content-Type', 'application/json');
-  res.write('[');
   let first = true;
 
   streamDownload(req, res, conn, sql, params, 'get_summarized_data', {
@@ -1778,14 +1795,16 @@ router.all('/get_magnitude_data', async (req, res) => {
     conn = await npnPool.getConnection();
     await conn.query('SET SESSION group_concat_max_len = 10000000');
     await configureStreamSession(conn);
+    res.setHeader('Content-Type', 'application/json');
+    res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
+    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
     console.error('get_magnitude_data error:', err.message);
-    return res.status(500).json({ error: err.message });
+    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    try { res.end(); } catch (_) {} // headers already flushed; just close the socket
+    return;
   }
 
-  res.setHeader('Content-Type', 'application/json');
-  res.write('[');
   let first = true;
 
   const onRow = (r, write) => {
@@ -1989,14 +2008,16 @@ router.all('/get_observation_group_details', async (req, res) => {
   try {
     conn = await npnDownloadPool.getConnection();
     await configureStreamSession(conn);
+    res.setHeader('Content-Type', 'application/json');
+    res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // released here so a failed session setup can't leak the pool slot
+    if (conn) conn.destroy(); // failed setup (incl. client aborted mid-setup) must not leak the slot
     console.error('get_observation_group_details error:', err.message);
-    return res.status(500).json({ error: err.message });
+    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    try { res.end(); } catch (_) {} // headers already flushed; just close the socket
+    return;
   }
 
-  res.setHeader('Content-Type', 'application/json');
-  res.write('[');
   let first = true;
 
   streamDownload(req, res, conn, sql, params, 'get_observation_group_details', {
