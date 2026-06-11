@@ -20,17 +20,20 @@ async function configureStreamSession(conn) {
   );
 }
 
-// Hard cap on the pre-stream session setup (getConnection's SET SESSION queries). A pooled
-// connection that has gone half-dead — server-side idle reap, RDS failover, a network blip
-// during a quiet stretch — accepts the write but never answers. And max_execution_time
-// isn't in effect yet (it's set BY this query), so there is no server-side cap: the SET
-// hangs forever, pinning the pool slot BEFORE streamDownload is ever reached. No
-// [stream] start, no res 'close' to trigger cleanup — so a burst can stall every slot this
-// way and wedge the whole download pool to zero throughput ("Queue limit reached."). Bound
-// it: on timeout we reject, the handler's catch destroys the connection (freeing the slot),
-// and the original query is allowed to settle late into a swallowed no-op.
+// Detection window for a half-dead pre-stream connection. A pooled connection that has gone
+// half-dead (server-side idle reap, RDS failover, a network blip) accepts the SET SESSION
+// write but never answers — and max_execution_time isn't in effect yet (it's set BY this
+// query), so there's no server-side cap and the SET hangs effectively forever. On timeout
+// acquireStreamConn() destroys it and retries on a fresh connection, so this is now a
+// DETECTION window, not a fatal cap: it should be SHORT. A healthy setup completes in well
+// under 200ms (getConnection + SET SESSION), and a dead one hangs indefinitely — there is no
+// middle ground of "legitimately slow SET" (siblings in the same burst finish in ~40ms while
+// the dead one hangs). 15s was the original generous bound from when a timeout meant a 500;
+// with retry in place that just made stale draws stall the full 15s (or 30s for two bad
+// draws in a row) before succeeding. 3s keeps ~15x headroom over a healthy setup while
+// turning those cliffs into ~3s/6s. Override with DOWNLOAD_SETUP_TIMEOUT_MS.
 const STREAM_SETUP_TIMEOUT_MS = parseInt(
-  process.env.DOWNLOAD_SETUP_TIMEOUT_MS || '15000', 10
+  process.env.DOWNLOAD_SETUP_TIMEOUT_MS || '3000', 10
 );
 function withSetupTimeout(promise, label) {
   promise.catch(() => {}); // swallow a late rejection after we've already moved on
