@@ -66,11 +66,21 @@ const npnPool = addQueryRetry(mysql.createPool({
 // tool, the rnpn R package) each run legitimate multi-minute downloads concurrently —
 // a handful saturates the pool even with zero leaks. Bounded queue still makes excess
 // requests fail fast rather than starving npnPool. Both env-overridable for live tuning.
+// maxIdle/idleTimeout: REAP idle download connections instead of holding them open
+// indefinitely (mysql2 defaults maxIdle = connectionLimit, i.e. no reaping). An idle
+// streaming connection that sits in the pool between bursts goes half-dead (NAT/firewall
+// idle-drop, RDS-side close); the next request to draw it blackholes on its first query
+// (configureStreamSession), which the setup timeout then has to destroy — surfacing as
+// intermittent 503s/retries (the rnpn/CRAN failures). Keeping only a couple of warm idle
+// connections and closing the rest after idleTimeout shrinks how often a stale one is even
+// drawn. acquireStreamConn()'s retry covers the residual (a kept-warm one going stale).
 const npnDownloadPool = mysql.createPool({
   ...npnConfig,
   ...mysqlPoolDefaults,
   connectionLimit: parseInt(process.env.DOWNLOAD_POOL_LIMIT || '10', 10),
   queueLimit: parseInt(process.env.DOWNLOAD_POOL_QUEUE || '20', 10),
+  maxIdle: parseInt(process.env.DOWNLOAD_POOL_MAX_IDLE || '2', 10),
+  idleTimeout: parseInt(process.env.DOWNLOAD_POOL_IDLE_TIMEOUT_MS || '30000', 10),
 });
 
 const drupalPool = addQueryRetry(mysql.createPool({

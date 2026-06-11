@@ -44,6 +44,38 @@ function withSetupTimeout(promise, label) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// Acquire a stream connection AND run its session setup, retrying past a stale connection.
+// A pooled connection that went half-dead while idle (NAT/firewall idle-drop, RDS-side
+// close) blackholes its first query, so configureStreamSession hangs until withSetupTimeout
+// fires. Because no response bytes have been sent yet, setup is fully idempotent: destroy
+// the bad connection (NEVER release it back — that re-poisons the pool, which is the wedge
+// we fixed) and try a fresh one. This turns a stale draw from a 500 into a transparent
+// retry — the fix for the intermittent rnpn/CRAN failures — while idle reaping on the pool
+// (db.js maxIdle/idleTimeout) shrinks how often a stale connection is drawn at all.
+//   preSession(conn)  optional extra per-connection SET run before configureStreamSession
+//                     (e.g. get_magnitude_data's group_concat_max_len).
+const STREAM_SETUP_RETRIES = parseInt(process.env.DOWNLOAD_SETUP_RETRIES || '2', 10);
+async function acquireStreamConn(pool, label, preSession) {
+  let lastErr;
+  for (let attempt = 0; attempt <= STREAM_SETUP_RETRIES; attempt++) {
+    const conn = await pool.getConnection();
+    try {
+      await withSetupTimeout((async () => {
+        if (preSession) await preSession(conn);
+        await configureStreamSession(conn);
+      })(), label);
+      return conn;
+    } catch (err) {
+      lastErr = err;
+      try { conn.destroy(); } catch (_) {} // half-dead: destroy, never release
+      if (attempt < STREAM_SETUP_RETRIES) {
+        console.warn(`[stream] ${label} setup retry ${attempt + 1}/${STREAM_SETUP_RETRIES} after: ${err.message}`);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // rawConn.destroy() only tears down the Node-side socket; MySQL keeps executing
 // the query until it next tries to write a row, so a query stuck in aggregation
 // runs to completion even though nobody is listening. Issue KILL QUERY from a
@@ -1118,14 +1150,16 @@ router.all('/get_observations', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnDownloadPool.getConnection();
-    await withSetupTimeout(configureStreamSession(conn), 'get_observations');
+    conn = await acquireStreamConn(npnDownloadPool, 'get_observations');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
+    if (conn) conn.destroy(); // a res.write here can throw if the client aborted mid-setup
     console.error('get_observations error:', err.message);
-    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.setHeader('Retry-After', '5');
+      return res.status(503).json({ error: 'Download capacity temporarily unavailable; please retry' });
+    }
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
     return;
   }
@@ -1285,14 +1319,16 @@ router.all('/get_summarized_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnDownloadPool.getConnection();
-    await withSetupTimeout(configureStreamSession(conn), 'get_summarized_data');
+    conn = await acquireStreamConn(npnDownloadPool, 'get_summarized_data');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
+    if (conn) conn.destroy(); // a res.write here can throw if the client aborted mid-setup
     console.error('get_summarized_data error:', err.message);
-    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.setHeader('Retry-After', '5');
+      return res.status(503).json({ error: 'Download capacity temporarily unavailable; please retry' });
+    }
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
     return;
   }
@@ -1437,12 +1473,12 @@ router.all('/get_site_level_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnDownloadPool.getConnection();
-    await withSetupTimeout(configureStreamSession(conn), 'get_site_level_data');
+    conn = await acquireStreamConn(npnDownloadPool, 'get_site_level_data');
   } catch (err) {
-    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
+    if (conn) conn.destroy(); // defensive; acquireStreamConn already destroyed on failure
     console.error('get_site_level_data error:', err.message);
-    return res.status(500).json({ error: err.message });
+    res.setHeader('Retry-After', '5');
+    return res.status(503).json({ error: 'Download capacity temporarily unavailable; please retry' });
   }
 
   const siteMap = new Map();
@@ -1816,17 +1852,18 @@ router.all('/get_magnitude_data', async (req, res) => {
     // client fans out many concurrent magnitude requests (one per time bin per year),
     // which the small throttled download pool would bottleneck/reject. These are
     // interactive, moderately-sized queries, not bulk streaming exports.
-    conn = await npnPool.getConnection();
-    await withSetupTimeout((async () => {
-      await conn.query('SET SESSION group_concat_max_len = 10000000');
-      await configureStreamSession(conn);
-    })(), 'get_magnitude_data');
+    conn = await acquireStreamConn(npnPool, 'get_magnitude_data', async (c) => {
+      await c.query('SET SESSION group_concat_max_len = 10000000');
+    });
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
+    if (conn) conn.destroy(); // a res.write here can throw if the client aborted mid-setup
     console.error('get_magnitude_data error:', err.message);
-    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.setHeader('Retry-After', '5');
+      return res.status(503).json({ error: 'Download capacity temporarily unavailable; please retry' });
+    }
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
     return;
   }
@@ -2032,14 +2069,16 @@ router.all('/get_observation_group_details', async (req, res) => {
 
   let conn;
   try {
-    conn = await npnDownloadPool.getConnection();
-    await withSetupTimeout(configureStreamSession(conn), 'get_observation_group_details');
+    conn = await acquireStreamConn(npnDownloadPool, 'get_observation_group_details');
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
-    if (conn) conn.destroy(); // failed/timed-out setup must not leak the slot
+    if (conn) conn.destroy(); // a res.write here can throw if the client aborted mid-setup
     console.error('get_observation_group_details error:', err.message);
-    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.setHeader('Retry-After', '5');
+      return res.status(503).json({ error: 'Download capacity temporarily unavailable; please retry' });
+    }
     try { res.end(); } catch (_) {} // headers already flushed; just close the socket
     return;
   }
