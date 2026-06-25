@@ -1423,6 +1423,38 @@ router.all('/get_site_level_data', async (req, res) => {
   const slPhenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
   const slTaxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
 
+  // When taxonomy_aggregate=1 and a higher-rank id filter is present, the old
+  // CakePHP (site_level_data_search.php) aggregates AT that rank: it groups rows
+  // by Site/<rank>/Phenophase (rowsMatch via agg_level), emits the rank id + name
+  // + common name, and drops the species-specific fields
+  // (removeAggregatedTaxonomiesFields). Precedence matches PHP (class > order >
+  // family > genus); the client is expected to send only one.
+  const SL_RANK_META = {
+    class:  { idKey: 'class_id',  nameCol: 'Class_Name',  nameKey: 'class_name',  commonCol: 'Class_Common_Name',  commonKey: 'class_common_name' },
+    order:  { idKey: 'order_id',  nameCol: 'Order_Name',  nameKey: 'order_name',  commonCol: 'Order_Common_Name',  commonKey: 'order_common_name' },
+    family: { idKey: 'family_id', nameCol: 'Family_Name', nameKey: 'family_name', commonCol: 'Family_Common_Name', commonKey: 'family_common_name' },
+    // Genus name lives in csd.Genus (already selected in the base query), so its
+    // nameKey is 'genus' and we don't re-select nameCol below.
+    genus:  { idKey: 'genus_id',  nameCol: 'Genus',       nameKey: 'genus',       commonCol: 'Genus_Common_Name',  commonKey: 'genus_common_name' },
+  };
+  let slAggRank = null;
+  if (slTaxonomyAggregate) {
+    if (checkProperty(p, 'class_id')) slAggRank = SL_RANK_META.class;
+    else if (checkProperty(p, 'order_id')) slAggRank = SL_RANK_META.order;
+    else if (checkProperty(p, 'family_id')) slAggRank = SL_RANK_META.family;
+    else if (checkProperty(p, 'genus_id')) slAggRank = SL_RANK_META.genus;
+  }
+
+  // Extra SELECT cols for the aggregation rank's name/common-name (the rank id
+  // and csd.Genus are already in the base SELECT below).
+  let slAggRankSelectSql = '';
+  if (slAggRank) {
+    const cols = [];
+    if (slAggRank.nameKey !== 'genus') cols.push(`csd.${slAggRank.nameCol} AS ${slAggRank.nameKey}`);
+    cols.push(`csd.${slAggRank.commonCol} AS ${slAggRank.commonKey}`);
+    slAggRankSelectSql = ',\n      ' + cols.join(',\n      ');
+  }
+
   const { withClause, joinTail, extraSelectSql, params } = buildPhenometricsQuery({
     startDate, endDate, seriesConditions, seriesParams, seriesJoins,
     csdAdditionalCols, coAdditionalCols,
@@ -1454,7 +1486,7 @@ router.all('/get_site_level_data', async (req, res) => {
       IFNULL(DATEDIFF(sy.first_yes_date, pn.prior_no_date), -9999)         AS numdays_since_prior_no,
       DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
       ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
-      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${extraSelectSql}
+      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${slAggRankSelectSql}${extraSelectSql}
     ${joinTail}
   `;
 
@@ -1492,8 +1524,14 @@ router.all('/get_site_level_data', async (req, res) => {
     const daysSince = r.numdays_since_prior_no;
     const daysUntil = r.numdays_until_next_no;
     const phenoKey = slPhenoClassAggregate ? r.pheno_class_id : r.phenophase_id;
-    const speciesKey = (slPhenoClassAggregate && !slTaxonomyAggregate) ? '*' : r.species_id;
-    const key = `${r.site_id}|${speciesKey}|${phenoKey}`;
+    // Taxon dimension of the group key: the higher rank's id when aggregating at
+    // that rank, '*' when collapsing species under pheno-class-only aggregation,
+    // otherwise the species id (default per-species behavior).
+    let taxonKey;
+    if (slAggRank) taxonKey = r[slAggRank.idKey];
+    else if (slPhenoClassAggregate && !slTaxonomyAggregate) taxonKey = '*';
+    else taxonKey = r.species_id;
+    const key = `${r.site_id}|${taxonKey}|${phenoKey}`;
 
     if (!siteMap.has(key)) {
       const entry = {
@@ -1524,6 +1562,11 @@ router.all('/get_site_level_data', async (req, res) => {
       if (slPhenoClassAggregate) {
         entry.pheno_class_id = r.pheno_class_id;
         entry.pheno_class_name = r.pheno_class_name;
+      }
+      if (slAggRank) {
+        // Carry the rank name + common name (rank id is already copied above).
+        entry[slAggRank.nameKey] = r[slAggRank.nameKey];
+        entry[slAggRank.commonKey] = r[slAggRank.commonKey];
       }
       for (const { key: addKey, decimal } of responseAdditionalKeys) {
         const raw = r[addKey];
@@ -1588,14 +1631,23 @@ router.all('/get_site_level_data', async (req, res) => {
         longitude: site.longitude,
         elevation_in_meters: site.elevation_in_meters,
         state: site.state,
-        species_id: site.species_id,
-        genus: site.genus,
-        species: site.species,
-        common_name: site.common_name,
-        kingdom: site.kingdom,
-        phenophase_id: site.phenophase_id,
-        phenophase_description: site.phenophase_description,
       };
+      if (slAggRank) {
+        // Higher-rank aggregation: emit the rank id + name + common name and
+        // drop the species-specific fields (parity with the old API's
+        // removeAggregatedTaxonomiesFields). For genus, nameKey is 'genus'.
+        item[slAggRank.idKey] = site[slAggRank.idKey];
+        item[slAggRank.nameKey] = site[slAggRank.nameKey];
+        item[slAggRank.commonKey] = site[slAggRank.commonKey];
+      } else {
+        item.species_id = site.species_id;
+        item.genus = site.genus;
+        item.species = site.species;
+        item.common_name = site.common_name;
+      }
+      item.kingdom = site.kingdom;
+      item.phenophase_id = site.phenophase_id;
+      item.phenophase_description = site.phenophase_description;
       if (site.pheno_class_id !== undefined) {
         item.pheno_class_id = site.pheno_class_id;
         item.pheno_class_name = site.pheno_class_name;
@@ -1620,7 +1672,8 @@ router.all('/get_site_level_data', async (req, res) => {
       result.push(item);
     }
 
-    result.sort((a, b) => a.site_id - b.site_id || a.species_id - b.species_id || (a.phenophase_id || 0) - (b.phenophase_id || 0));
+    const taxIdKey = slAggRank ? slAggRank.idKey : 'species_id';
+    result.sort((a, b) => a.site_id - b.site_id || ((a[taxIdKey] || 0) - (b[taxIdKey] || 0)) || (a.phenophase_id || 0) - (b.phenophase_id || 0));
 
     res.setHeader('Content-Type', 'application/json');
     write('[');
