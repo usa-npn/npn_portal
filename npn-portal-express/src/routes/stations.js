@@ -447,33 +447,75 @@ router.all('/get_daymet_data', async (req, res) => {
   try {
     const p = req.query;
 
-    if (!checkProperty(p, 'station_id')) {
-      return res.status(400).json({ error: 'station_id is required' });
+    if (!checkProperty(p, 'station_id') || !checkProperty(p, 'year')) {
+      return res.status(400).json({ error: 'station_id and year are required' });
     }
 
     const stationId = parseInt(p.station_id, 10);
-    const conditions = ['Station_ID = ?'];
-    const params = [stationId];
-
-    if (checkProperty(p, 'start_date')) {
-      conditions.push('Data_Date >= ?');
-      params.push(p.start_date);
-    }
-
-    if (checkProperty(p, 'end_date')) {
-      conditions.push('Data_Date <= ?');
-      params.push(p.end_date);
-    }
+    const year = parseInt(p.year, 10);
+    const doy = checkProperty(p, 'doy') ? parseInt(p.doy, 10) : 1;
 
     const sql = `
-      SELECT Station_ID, Data_Date, Tmax, Tmin, Prcp, Srad, Vp, Swe, Dayl
-      FROM usanpn2.Daymet_Data
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY Data_Date ASC
+      SELECT
+        d.Daymet_ID, d.Latitude, d.Longitude, d.Year,
+        d.tmax_winter, d.tmax_spring, d.tmax_summer, d.tmax_fall,
+        d.tmin_winter, d.tmin_spring, d.tmin_summer, d.tmin_fall,
+        d.prcp_winter, d.prcp_spring, d.prcp_summer, d.prcp_fall,
+        d.Update_Date,
+        dd.Daymet_Data_ID, dd.doy, dd.tmax, dd.tmin, dd.tmaxf, dd.tminf,
+        dd.prcp, dd.daylength, dd.gdd, dd.gddf, dd.acc_prcp
+      FROM usanpn2.Station s
+      JOIN usanpn2.Daymet d
+        ON s.Short_Longitude = d.Longitude AND s.Short_Latitude = d.Latitude AND d.Year = ?
+      LEFT JOIN usanpn2.Daymet_Data dd
+        ON d.Daymet_ID = dd.Daymet_ID AND dd.doy = ?
+      WHERE s.Station_ID = ?
     `;
 
-    const [rows] = await npnPool.query(sql, params);
-    res.json(rows);
+    const [rows] = await npnPool.query(sql, [year, doy, stationId]);
+
+    if (!rows.length) {
+      return res.json(null);
+    }
+
+    const row = rows[0];
+    const result = {
+      Daymet: {
+        Daymet_ID: row.Daymet_ID,
+        Latitude: row.Latitude,
+        Longitude: row.Longitude,
+        Year: row.Year,
+        tmax_winter: row.tmax_winter,
+        tmax_spring: row.tmax_spring,
+        tmax_summer: row.tmax_summer,
+        tmax_fall: row.tmax_fall,
+        tmin_winter: row.tmin_winter,
+        tmin_spring: row.tmin_spring,
+        tmin_summer: row.tmin_summer,
+        tmin_fall: row.tmin_fall,
+        prcp_winter: row.prcp_winter,
+        prcp_spring: row.prcp_spring,
+        prcp_summer: row.prcp_summer,
+        prcp_fall: row.prcp_fall,
+        Update_Date: row.Update_Date,
+      },
+      daymet2daymetdata: row.Daymet_Data_ID != null ? [{
+        Daymet_Data_ID: row.Daymet_Data_ID,
+        Daymet_ID: row.Daymet_ID,
+        doy: row.doy,
+        tmax: row.tmax,
+        tmin: row.tmin,
+        tmaxf: row.tmaxf,
+        tminf: row.tminf,
+        prcp: row.prcp,
+        daylength: row.daylength,
+        gdd: row.gdd,
+        gddf: row.gddf,
+        acc_prcp: row.acc_prcp,
+      }] : [],
+    };
+
+    res.json(result);
   } catch (err) {
     console.error('get_daymet_data error:', err.message);
     res.status(500).json({ error: err.message });
