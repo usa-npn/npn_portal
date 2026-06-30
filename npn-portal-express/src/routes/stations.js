@@ -442,6 +442,137 @@ router.all('/get_station_details', async (req, res) => {
   });
 });
 
+// --- Daymet fetch-and-cache helpers ---
+
+const DAYMET_VARS = 'tmin,tmax,dayl,prcp';
+// https://daymet.ornl.gov/single-pixel — current single-pixel extraction API
+const DAYMET_API = 'https://daymet.ornl.gov/single-pixel/api/data';
+
+const FIRST_DAY_WINTER = 335, LAST_DAY_WINTER = 59;
+const FIRST_DAY_SPRING = 60,  LAST_DAY_SPRING  = 151;
+const FIRST_DAY_SUMMER = 152, LAST_DAY_SUMMER  = 243;
+const FIRST_DAY_FALL   = 244, LAST_DAY_FALL    = 334;
+const GDD_BASE_C = 0, GDD_BASE_F = 32;
+
+function daymetIsLeapYear(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+// Fetch one year of daily data from the Daymet API; returns array of day objects or null.
+async function fetchDaymetAPI(lat, lon, year) {
+  try {
+    const url = `${DAYMET_API}?lat=${lat}&lon=${lon}&vars=${DAYMET_VARS}&years=${year}`;
+    const resp = await axios.get(url, { timeout: 30000, responseType: 'text' });
+    const lines = resp.data.split(/\r?\n/);
+    // Find the header line (contains both 'year' and 'yday')
+    const headerIdx = lines.findIndex(l => l.includes('year') && l.includes('yday'));
+    if (headerIdx < 0) return null;
+    // Strip units like "(deg c)" from header tokens
+    const headers = lines[headerIdx].split(',').map(h => h.trim().split(' ')[0]);
+    const days = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const vals = line.split(',');
+      const day = {};
+      headers.forEach((h, idx) => { day[h] = parseFloat(vals[idx]); });
+      days.push(day);
+    }
+    return days.length ? days : null;
+  } catch (err) {
+    console.error(`fetchDaymetAPI error (lat=${lat} lon=${lon} year=${year}):`, err.message);
+    return null;
+  }
+}
+
+function daymetGetDays(data, firstDay, lastDay, leap) {
+  const start = firstDay + leap - 1;
+  const length = lastDay - firstDay + leap + 1;
+  return data.slice(start, start + length);
+}
+
+function daymetGetWinterDays(data, lastYearData, year) {
+  const leap = daymetIsLeapYear(year) ? 1 : 0;
+  const prevLeap = daymetIsLeapYear(year - 1) ? 1 : 0;
+  const winterLast = lastYearData ? lastYearData.slice(FIRST_DAY_WINTER + prevLeap - 1) : [];
+  const winterThis = data.slice(0, LAST_DAY_WINTER + leap);
+  return [...winterLast, ...winterThis];
+}
+
+function avg(days, key) {
+  if (!days.length) return 0;
+  return days.reduce((s, d) => s + d[key], 0) / days.length;
+}
+
+function sum(days, key) {
+  return days.reduce((s, d) => s + d[key], 0);
+}
+
+// Fetch from Daymet API and write to usanpn2.Daymet + usanpn2.Daymet_Data.
+async function cacheDaymet(lat, lon, year, data, lastYearData) {
+  const leap = daymetIsLeapYear(year) ? 1 : 0;
+  const prevLeap = daymetIsLeapYear(year - 1) ? 1 : 0;
+
+  const winterDays = daymetGetWinterDays(data, lastYearData, year);
+  const springDays = daymetGetDays(data, FIRST_DAY_SPRING, LAST_DAY_SPRING, leap);
+  const summerDays = daymetGetDays(data, FIRST_DAY_SUMMER, LAST_DAY_SUMMER, leap);
+  const fallDays   = lastYearData
+    ? daymetGetDays(lastYearData, FIRST_DAY_FALL, LAST_DAY_FALL, prevLeap)
+    : [];
+
+  const daymetRow = {
+    Latitude: lat, Longitude: lon, Year: year,
+    tmax_winter: avg(winterDays, 'tmax'), tmax_spring: avg(springDays, 'tmax'),
+    tmax_summer: avg(summerDays, 'tmax'), tmax_fall:   avg(fallDays,   'tmax'),
+    tmin_winter: avg(winterDays, 'tmin'), tmin_spring: avg(springDays, 'tmin'),
+    tmin_summer: avg(summerDays, 'tmin'), tmin_fall:   avg(fallDays,   'tmin'),
+    prcp_winter: sum(winterDays, 'prcp'), prcp_spring: sum(springDays, 'prcp'),
+    prcp_summer: sum(summerDays, 'prcp'), prcp_fall:   sum(fallDays,   'prcp'),
+    Update_Date: new Date().toISOString().replace('T', ' ').slice(0, 19),
+  };
+
+  const [[existing]] = await npnPool.query(
+    'SELECT Daymet_ID FROM usanpn2.Daymet WHERE Latitude = ? AND Longitude = ? AND Year = ?',
+    [lat, lon, year]
+  );
+
+  let daymetId;
+  if (existing) {
+    daymetId = existing.Daymet_ID;
+    const { Latitude, Longitude, Year, ...updateFields } = daymetRow;
+    await npnPool.query('UPDATE usanpn2.Daymet SET ? WHERE Daymet_ID = ?', [updateFields, daymetId]);
+  } else {
+    const [result] = await npnPool.query('INSERT INTO usanpn2.Daymet SET ?', [daymetRow]);
+    daymetId = result.insertId;
+  }
+
+  let gdd = 0, gddf = 0, totalPrcp = 0;
+  for (let i = 0; i < data.length; i++) {
+    const day = data[i];
+    const tmaxf = (day.tmax * 1.8) + 32;
+    const tminf = (day.tmin * 1.8) + 32;
+    const todayGdd  = (day.tmax + day.tmin) / 2 - GDD_BASE_C;
+    const todayGddf = (tmaxf + tminf) / 2 - GDD_BASE_F;
+    gdd       += todayGdd  < 0 ? 0 : todayGdd;
+    gddf      += todayGddf < 0 ? 0 : todayGddf;
+    totalPrcp += day.prcp;
+
+    await npnPool.query(
+      `INSERT INTO usanpn2.Daymet_Data
+         (Daymet_ID, doy, tmax, tmin, tmaxf, tminf, prcp, daylength, gdd, gddf, acc_prcp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         tmax=VALUES(tmax), tmin=VALUES(tmin), tmaxf=VALUES(tmaxf), tminf=VALUES(tminf),
+         prcp=VALUES(prcp), daylength=VALUES(daylength), gdd=VALUES(gdd),
+         gddf=VALUES(gddf), acc_prcp=VALUES(acc_prcp)`,
+      [daymetId, i + 1, day.tmax, day.tmin, tmaxf, tminf,
+       day.prcp, day.dayl, gdd, gddf, totalPrcp]
+    );
+  }
+
+  return daymetId;
+}
+
 // GET /get_daymet_data
 router.all('/get_daymet_data', async (req, res) => {
   try {
@@ -472,10 +603,25 @@ router.all('/get_daymet_data', async (req, res) => {
       WHERE s.Station_ID = ?
     `;
 
-    const [rows] = await npnPool.query(sql, [year, doy, stationId]);
+    let [rows] = await npnPool.query(sql, [year, doy, stationId]);
 
     if (!rows.length) {
-      return res.json(null);
+      // DB miss — fetch from Daymet API, cache, then re-query
+      const [[station]] = await npnPool.query(
+        'SELECT Short_Latitude AS lat, Short_Longitude AS lon FROM usanpn2.Station WHERE Station_ID = ?',
+        [stationId]
+      );
+      if (!station) return res.json(null);
+
+      const { lat, lon } = station;
+      const data = await fetchDaymetAPI(lat, lon, year);
+      if (!data) return res.json(null);
+
+      const lastYearData = await fetchDaymetAPI(lat, lon, year - 1);
+      await cacheDaymet(lat, lon, year, data, lastYearData);
+
+      [rows] = await npnPool.query(sql, [year, doy, stationId]);
+      if (!rows.length) return res.json(null);
     }
 
     const row = rows[0];
