@@ -279,6 +279,19 @@ function applyCommonDownloadFilters(p, conditions, params, joins, csdAlias = 'cs
     }
   }
 
+  // phenophase_category → Phenophase_Category LIKE matching (OR'd if multiple).
+  // Matches legacy GenericObservationSearch::phenophase_category behavior; this
+  // is the param the POP actually sends (phenophase_id is a distinct, separate
+  // filter these endpoints also support).
+  if (checkProperty(p, 'phenophase_category')) {
+    const cats = arrayWrap(p.phenophase_category).filter(c => c !== '' && c !== null && c !== undefined);
+    if (cats.length > 0) {
+      const clauses = cats.map(() => `${csdAlias}.Phenophase_Category LIKE ?`);
+      conditions.push(`(${clauses.join(' OR ')})`);
+      for (const c of cats) params.push(`%${c}%`);
+    }
+  }
+
   // species_type → Species_Category LIKE matching (OR'd if multiple)
   if (checkProperty(p, 'species_type')) {
     const types = arrayWrap(p.species_type).filter(t => t !== '' && t !== null && t !== undefined);
