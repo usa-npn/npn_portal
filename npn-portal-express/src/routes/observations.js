@@ -4,6 +4,7 @@ const { npnPool, npnDownloadPool } = require('../config/db');
 const checkProperty = require('../utils/checkProperty');
 const arrayWrap = require('../utils/arrayWrap');
 const resolveBooleanText = require('../utils/resolveBooleanText');
+const { splitSeriesCycles } = require('../utils/phenometrics');
 
 // Streaming download endpoints hold a dedicated connection while MySQL grinds
 // through heavy CTE/aggregation queries. Two protections, matching what the old
@@ -381,91 +382,93 @@ function withPhenoClassDefaults(requested, p) {
   return deduped;
 }
 
+// MySQL GROUP_CONCAT separator between per-observation tokens in the series-history
+// lists below: the ASCII Unit Separator (0x1F), not a comma — several CO text
+// columns (conflict flag, comments) can contain commas, which a `,` separator
+// would corrupt on split. Matched on the JS side by SERIES_LIST_SEPARATOR.
+const SERIES_LIST_SEPARATOR = '\x1f';
+
 /**
- * Build the shared CTE prefix and join tail for the per-series phenometrics queries
- * (get_summarized_data, get_site_level_data). Both compute first/last "yes" dates and
- * the surrounding prior/next "no" dates per Series_ID over a date window.
+ * Build the single-pass, csd-driven query behind the per-series phenometrics
+ * endpoints (get_summarized_data, get_site_level_data). Replaces an earlier
+ * 3-CTE MIN/MAX rewrite that collapsed every "yes" run in a Series_ID into one
+ * flat first/last pair — losing the legacy multi-cycle split (see
+ * splitSeriesCycles() in ../utils/phenometrics.js, which this feeds). Restores
+ * the original CakePHP shape: one csd-driven GROUP BY per Series_ID, with the
+ * full ordered (date, status, ...) history pulled via GROUP_CONCAT so the JS
+ * layer can walk it exactly like legacy's PHP did.
  *
- * Two performance properties, restored from the original CakePHP single-pass query
- * (the Express CTE rewrite had dropped both):
- *   #1 The csd-level filters (species/state/coords/taxonomy/network) are pushed into
- *      series_yes as a Series_ID membership subquery, so the heavy Cached_Observation
- *      aggregation runs only for the series the caller wants — not every series in the
- *      year. prior_no/next_no inherit the restriction by joining series_yes. Omitted
- *      entirely when there are no filters (full-dataset download).
- *   #2 CO-side additional fields (climate, conflict flag, ...) are aggregated in the
- *      same series_yes pass (MAX over the same rows) instead of a separate co_agg scan.
+ * csd is the driving table with filters directly in its WHERE (this IS the
+ * filter pushdown the old 3-CTE version approximated via a Series_ID semi-join
+ * subquery — no longer needed since csd driving the join has the same effect).
+ * When there are no series-level filters/joins (a full-dataset download), add
+ * STRAIGHT_JOIN to keep the optimizer from flipping to a CO-driven plan that
+ * needs a Series_ID sort over the whole table; a csd PRIMARY scan is already
+ * Series_ID-ordered, so STRAIGHT_JOIN keeps the aggregate streaming.
  *
- * Returns { withClause, joinTail, extraSelectSql, params }. Callers append their own
- * SELECT column list (immediately before extraSelectSql) and any ORDER BY / LIMIT.
- * Param order matches the placeholders: series_yes (dates, then pushdown filter params),
- * prior_no dates, next_no dates.
+ * coListCols become GROUP_CONCAT lists (positionally aligned with the date/
+ * status lists — same ORDER BY, same separator); coAggCols stay MAX(), same as
+ * before. Returns { sql, params }; callers append their own base SELECT column
+ * list, ORDER BY, and LIMIT via the `baseSelectCols`/`orderBy` args.
  */
-function buildPhenometricsQuery({ startDate, endDate, seriesConditions, seriesParams, seriesJoins, csdAdditionalCols, coAdditionalCols }) {
+function buildSeriesHistoryQuery({
+  startDate, endDate, seriesConditions, seriesParams, seriesJoins,
+  baseSelectCols, csdAdditionalCols, coListCols, coAggCols, orderBy,
+}) {
   const seriesWhere = seriesConditions.length > 0 ? 'AND ' + seriesConditions.join(' AND ') : '';
   const hasSeriesFilter = seriesConditions.length > 0 || seriesJoins.length > 0;
+  const straightJoin = hasSeriesFilter ? '' : 'STRAIGHT_JOIN';
 
-  // #1 — limit the Cached_Observation aggregation to series passing the csd-level filters.
-  const seriesFilter = hasSeriesFilter
-    ? `AND co.Series_ID IN (
-          SELECT csd.Series_ID
-          FROM usanpn2.Cached_Summarized_Data csd
-          ${seriesJoins.join(' ')}
-          WHERE 1=1 ${seriesWhere}
-        )`
-    : '';
-
-  // #2 — fold CO-side additional fields into the series_yes pass (same rows, same GROUP BY).
-  const climateSelect = coAdditionalCols.map(c => `,\n        MAX(co.${c.col}) AS ${c.key}`).join('');
-
-  const withClause = `WITH series_yes AS (
-      SELECT
-        co.Series_ID,
-        MIN(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS first_yes_date,
-        MAX(CASE WHEN co.Phenophase_Status = 1 THEN co.Observation_Date END) AS last_yes_date${climateSelect}
-      FROM usanpn2.Cached_Observation co
-      WHERE co.Observation_Date BETWEEN ? AND ?
-        ${seriesFilter}
-      GROUP BY co.Series_ID
-      HAVING first_yes_date IS NOT NULL
-    ),
-    prior_no AS (
-      SELECT co.Series_ID, MAX(co.Observation_Date) AS prior_no_date
-      FROM usanpn2.Cached_Observation co
-      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
-      WHERE co.Phenophase_Status = 0
-        AND co.Observation_Date BETWEEN ? AND ?
-        AND co.Observation_Date < sy.first_yes_date
-      GROUP BY co.Series_ID
-    ),
-    next_no AS (
-      SELECT co.Series_ID, MIN(co.Observation_Date) AS next_no_date
-      FROM usanpn2.Cached_Observation co
-      INNER JOIN series_yes sy ON sy.Series_ID = co.Series_ID
-      WHERE co.Phenophase_Status = 0
-        AND co.Observation_Date BETWEEN ? AND ?
-        AND co.Observation_Date > sy.last_yes_date
-      GROUP BY co.Series_ID
-    )`;
-
-  const joinTail = `FROM usanpn2.Cached_Summarized_Data csd
-    INNER JOIN series_yes sy ON sy.Series_ID = csd.Series_ID
-    LEFT JOIN prior_no pn ON pn.Series_ID = csd.Series_ID
-    LEFT JOIN next_no nn ON nn.Series_ID = csd.Series_ID
-    WHERE 1=1`;
-
-  const extraSelectSql = [
-    ...csdAdditionalCols,
-    ...coAdditionalCols.map(c => `sy.${c.key} AS ${c.key}`),
-  ].map(s => ',\n      ' + s).join('');
-
-  const params = [
-    startDate, endDate, ...seriesParams,
-    startDate, endDate,
-    startDate, endDate,
+  const orderExpr = 'co.Observation_Date ASC, co.Phenophase_Status DESC';
+  const listSelects = [
+    `GROUP_CONCAT(co.Observation_Date ORDER BY ${orderExpr} SEPARATOR 0x1f) AS gd`,
+    `GROUP_CONCAT(co.Phenophase_Status ORDER BY ${orderExpr} SEPARATOR 0x1f) AS ge`,
+    ...coListCols.map(c => `GROUP_CONCAT(co.${c.col} ORDER BY ${orderExpr} SEPARATOR 0x1f) AS ${c.key}__list`),
   ];
+  const aggSelects = coAggCols.map(c => `MAX(co.${c.col}) AS ${c.key}`);
 
-  return { withClause, joinTail, extraSelectSql, params };
+  const selectCols = [...baseSelectCols, ...csdAdditionalCols, ...listSelects, ...aggSelects];
+  const orderClause = orderBy ? `ORDER BY ${orderBy}` : '';
+
+  const sql = `
+    SELECT ${straightJoin}
+      ${selectCols.join(',\n      ')}
+    FROM usanpn2.Cached_Summarized_Data csd
+    INNER JOIN usanpn2.Cached_Observation co ON co.Series_ID = csd.Series_ID
+    ${seriesJoins.join(' ')}
+    WHERE co.Observation_Date BETWEEN ? AND ?
+      ${seriesWhere}
+    GROUP BY csd.Series_ID
+    HAVING SUM(co.Phenophase_Status = 1) > 0
+    ${orderClause}
+  `;
+
+  const params = [startDate, endDate, ...seriesParams];
+  return { sql, params };
+}
+
+// Split a GROUP_CONCAT'd series-history row into { dates, statuses, lists } ready
+// for splitSeriesCycles(). `coListCols`/`coAggCols` are the same classified arrays
+// passed to buildSeriesHistoryQuery (so we know which requested additional_field
+// keys are lists vs already-scalar MAX() columns) and `climateKeys` is the subset
+// of coListCols keys that are climate columns (as opposed to dataset_id /
+// observedby_person_id / observed_status_conflict_flag, which get their own
+// splitSeriesCycles() list slots rather than living under `climate`).
+function parseSeriesRow(row, coListCols) {
+  const dates = row.gd.split(SERIES_LIST_SEPARATOR);
+  const statuses = row.ge.split(SERIES_LIST_SEPARATOR);
+  const lists = {};
+  const climate = {};
+  for (const { key } of coListCols) {
+    const raw = row[`${key}__list`];
+    const arr = raw === null || raw === undefined ? [] : raw.split(SERIES_LIST_SEPARATOR);
+    if (key === 'dataset_id') lists.datasetIds = arr;
+    else if (key === 'observedby_person_id') lists.observerIds = arr;
+    else if (key === 'observed_status_conflict_flag') lists.conflicts = arr;
+    else climate[key] = arr;
+  }
+  if (Object.keys(climate).length > 0) lists.climate = climate;
+  return { dates, statuses, lists };
 }
 
 /**
@@ -970,9 +973,16 @@ const ADDITIONAL_FIELD_MAP = {
   family_id:                               { table: 'csd', col: 'Family_ID' },
   family_name:                             { table: 'csd', col: 'Family_Name' },
   family_common_name:                      { table: 'csd', col: 'Family_Common_Name' },
-  // CO fields
-  dataset_id:                              { table: 'co', col: 'Dataset_ID' },
-  observedby_person_id:                    { table: 'co', col: 'ObservedBy_Person_ID' },
+  // CO fields. `list: true` marks the fields legacy pulled via GROUP_CONCAT
+  // (climate columns, dataset_id, observedby_person_id,
+  // observed_status_conflict_flag) — these need the per-series ORDERED history
+  // so splitSeriesCycles() can index into them at each cycle's first-yes
+  // position; only used by get_summarized_data/get_site_level_data, which read
+  // this flag to route a field into coListCols vs coAggCols. Everything else
+  // CO-side keeps the existing MAX() behavior (never part of legacy's
+  // per-series field list).
+  dataset_id:                              { table: 'co', col: 'Dataset_ID', list: true },
+  observedby_person_id:                    { table: 'co', col: 'ObservedBy_Person_ID', list: true },
   submission_id:                           { table: 'co', col: 'Submission_ID' },
   submittedby_person_id:                   { table: 'co', col: 'SubmittedBy_Person_ID' },
   submission_datetime:                     { table: 'co', col: 'Submission_Datetime' },
@@ -985,29 +995,29 @@ const ADDITIONAL_FIELD_MAP = {
   observation_time:                        { table: 'co', col: 'Observation_Time' },
   observation_group_id:                    { table: 'co', col: 'Observation_Group_ID' },
   observation_comments:                    { table: 'co', col: 'Observation_Comments' },
-  observed_status_conflict_flag:           { table: 'co', col: 'Observed_Status_Conflict_Flag' },
+  observed_status_conflict_flag:           { table: 'co', col: 'Observed_Status_Conflict_Flag', list: true },
   status_conflict_related_records:         { table: 'co', col: 'Status_Conflict_Related_Records' },
-  gdd:                                     { table: 'co', col: 'gdd',          decimal: true },
-  gddf:                                    { table: 'co', col: 'gddf',         decimal: true },
-  tmax_winter:                             { table: 'co', col: 'tmax_winter',  decimal: true },
-  tmax_spring:                             { table: 'co', col: 'tmax_spring',  decimal: true },
-  tmax_summer:                             { table: 'co', col: 'tmax_summer',  decimal: true },
-  tmax_fall:                               { table: 'co', col: 'tmax_fall',    decimal: true },
-  tmax:                                    { table: 'co', col: 'tmax',         decimal: true },
-  tmaxf:                                   { table: 'co', col: 'tmaxf',        decimal: true },
-  tmin_winter:                             { table: 'co', col: 'tmin_winter',  decimal: true },
-  tmin_spring:                             { table: 'co', col: 'tmin_spring',  decimal: true },
-  tmin_summer:                             { table: 'co', col: 'tmin_summer',  decimal: true },
-  tmin_fall:                               { table: 'co', col: 'tmin_fall',    decimal: true },
-  tmin:                                    { table: 'co', col: 'tmin',         decimal: true },
-  tminf:                                   { table: 'co', col: 'tminf',        decimal: true },
-  prcp_winter:                             { table: 'co', col: 'prcp_winter',  decimal: true },
-  prcp_spring:                             { table: 'co', col: 'prcp_spring',  decimal: true },
-  prcp_summer:                             { table: 'co', col: 'prcp_summer',  decimal: true },
-  prcp_fall:                               { table: 'co', col: 'prcp_fall',    decimal: true },
-  prcp:                                    { table: 'co', col: 'prcp',         decimal: true },
-  acc_prcp:                                { table: 'co', col: 'acc_prcp',     decimal: true },
-  daylength:                               { table: 'co', col: 'daylength' },
+  gdd:                                     { table: 'co', col: 'gdd',          decimal: true, list: true },
+  gddf:                                    { table: 'co', col: 'gddf',         decimal: true, list: true },
+  tmax_winter:                             { table: 'co', col: 'tmax_winter',  decimal: true, list: true },
+  tmax_spring:                             { table: 'co', col: 'tmax_spring',  decimal: true, list: true },
+  tmax_summer:                             { table: 'co', col: 'tmax_summer',  decimal: true, list: true },
+  tmax_fall:                               { table: 'co', col: 'tmax_fall',    decimal: true, list: true },
+  tmax:                                    { table: 'co', col: 'tmax',         decimal: true, list: true },
+  tmaxf:                                   { table: 'co', col: 'tmaxf',        decimal: true, list: true },
+  tmin_winter:                             { table: 'co', col: 'tmin_winter',  decimal: true, list: true },
+  tmin_spring:                             { table: 'co', col: 'tmin_spring',  decimal: true, list: true },
+  tmin_summer:                             { table: 'co', col: 'tmin_summer',  decimal: true, list: true },
+  tmin_fall:                               { table: 'co', col: 'tmin_fall',    decimal: true, list: true },
+  tmin:                                    { table: 'co', col: 'tmin',         decimal: true, list: true },
+  tminf:                                   { table: 'co', col: 'tminf',        decimal: true, list: true },
+  prcp_winter:                             { table: 'co', col: 'prcp_winter',  decimal: true, list: true },
+  prcp_spring:                             { table: 'co', col: 'prcp_spring',  decimal: true, list: true },
+  prcp_summer:                             { table: 'co', col: 'prcp_summer',  decimal: true, list: true },
+  prcp_fall:                               { table: 'co', col: 'prcp_fall',    decimal: true, list: true },
+  prcp:                                    { table: 'co', col: 'prcp',         decimal: true, list: true },
+  acc_prcp:                                { table: 'co', col: 'acc_prcp',     decimal: true, list: true },
+  daylength:                               { table: 'co', col: 'daylength', list: true },
   greenup_0:                               { table: 'co', col: 'Greenup_0' },
   greenup_1:                               { table: 'co', col: 'Greenup_1' },
   midgreenup_0:                            { table: 'co', col: 'MidGreenup_0' },
@@ -1033,6 +1043,12 @@ const ADDITIONAL_FIELD_MAP = {
   qa_detailed_1:                           { table: 'co', col: 'QA_Detailed_1' },
   qa_overall_0:                            { table: 'co', col: 'QA_Overall_0' },
   qa_overall_1:                            { table: 'co', col: 'QA_Overall_1' },
+  // Computed per-cycle fields — sourced from splitSeriesCycles()'s descriptor,
+  // not a SQL column. Only meaningful for get_summarized_data/get_site_level_data.
+  numys_in_series:                         { table: 'computed' },
+  numdays_in_series:                       { table: 'computed' },
+  multiple_observers:                      { table: 'computed' },
+  multiple_firsty:                         { table: 'computed' },
 };
 
 // Fields already in the base SELECT — skip if requested as additional_field
@@ -1126,7 +1142,9 @@ router.all('/get_observations', async (req, res) => {
   for (const key of requestedAdditional) {
     if (BASE_OBSERVATION_KEYS.has(key)) continue;
     const def = ADDITIONAL_FIELD_MAP[key];
-    if (!def) continue;
+    // 'computed' fields (numys_in_series, etc.) only exist as a per-series-cycle
+    // output of get_summarized_data/get_site_level_data — not a raw observation column.
+    if (!def || def.table === 'computed') continue;
     extraCols.push(`${def.table}.${def.col} AS ${key}`);
     extraKeys.push(key);
   }
@@ -1274,68 +1292,87 @@ router.all('/get_summarized_data', async (req, res) => {
   // per-series (csd-driven) and must not fan out across a series' observations.
   applyCommonDownloadFilters(p, seriesConditions, seriesParams, seriesJoins, 'csd', 'co_net');
 
-  // additional_field handling. CO-side fields are pulled from a pre-aggregated
-  // subquery scoped to the date range so we keep one row per Series_ID.
+  // additional_field handling. Legacy parity: climate columns and dataset_id /
+  // observedby_person_id / observed_status_conflict_flag need the full ordered
+  // per-series history (GROUP_CONCAT, "list") so splitSeriesCycles() can index
+  // into them per cycle; everything else CO-side stays a plain MAX() (one value
+  // per Series_ID, unaffected by cycle-splitting).
   const requestedAdditional = withPhenoClassDefaults(resolveAdditionalFields(p), p);
   const csdAdditionalCols = [];
-  const coAdditionalCols = [];     // {key, sqlCol}
-  const responseAdditionalKeys = [];
+  const coListCols = [];   // {key, col} -> GROUP_CONCAT
+  const coAggCols = [];    // {key, col} -> MAX()
+  const responseAdditionalKeys = []; // {key, kind, decimal}
   for (const key of requestedAdditional) {
     const def = ADDITIONAL_FIELD_MAP[key];
     if (!def) continue;
-    responseAdditionalKeys.push({ key, decimal: !!def.decimal });
-    if (def.table === 'csd') {
+    if (def.table === 'computed') {
+      responseAdditionalKeys.push({ key, kind: 'computed' });
+    } else if (def.table === 'csd') {
       csdAdditionalCols.push(`csd.${def.col} AS ${key}`);
+      responseAdditionalKeys.push({ key, kind: 'csd', decimal: !!def.decimal });
+    } else if (def.list) {
+      coListCols.push({ key, col: def.col });
+      let kind = 'climate';
+      if (key === 'dataset_id') kind = 'datasetIds';
+      else if (key === 'observedby_person_id') kind = 'observerIds';
+      else if (key === 'observed_status_conflict_flag') kind = 'conflictFlag';
+      responseAdditionalKeys.push({ key, kind, decimal: !!def.decimal });
     } else {
-      coAdditionalCols.push({ key, col: def.col });
+      coAggCols.push({ key, col: def.col });
+      responseAdditionalKeys.push({ key, kind: 'coAgg', decimal: !!def.decimal });
     }
   }
-  const { withClause, joinTail, extraSelectSql, params } = buildPhenometricsQuery({
-    startDate, endDate, seriesConditions, seriesParams, seriesJoins,
-    csdAdditionalCols, coAdditionalCols,
-  });
-  const limitClause = checkProperty(p, 'limit') ? `LIMIT ${parseInt(p.limit, 10)}` : '';
 
-  const sql = `
-    ${withClause}
-    SELECT
-      csd.Site_ID                                                           AS site_id,
-      csd.Latitude                                                          AS latitude,
-      csd.Longitude                                                         AS longitude,
-      csd.Elevation_in_Meters                                               AS elevation_in_meters,
-      csd.State                                                             AS state,
-      csd.Species_ID                                                        AS species_id,
-      csd.Class_ID                                                          AS class_id,
-      csd.Order_ID                                                          AS order_id,
-      csd.Family_ID                                                         AS family_id,
-      csd.Genus_ID                                                          AS genus_id,
-      csd.Genus                                                             AS genus,
-      csd.Species                                                           AS species,
-      csd.Common_Name                                                       AS common_name,
-      csd.Kingdom                                                           AS kingdom,
-      csd.Individual_ID                                                     AS individual_id,
-      csd.Phenophase_ID                                                     AS phenophase_id,
-      csd.Phenophase_Description                                            AS phenophase_description,
-      YEAR(sy.first_yes_date)                                               AS first_yes_year,
-      MONTH(sy.first_yes_date)                                              AS first_yes_month,
-      DAY(sy.first_yes_date)                                                AS first_yes_day,
-      DAYOFYEAR(sy.first_yes_date)                                          AS first_yes_doy,
-      ROUND(UNIX_TIMESTAMP(sy.first_yes_date) / 86400.0 + 2440587.5)       AS first_yes_julian_date,
-      IFNULL(DATEDIFF(sy.first_yes_date, pn.prior_no_date), -9999)         AS numdays_since_prior_no,
-      YEAR(sy.last_yes_date)                                                AS last_yes_year,
-      MONTH(sy.last_yes_date)                                               AS last_yes_month,
-      DAY(sy.last_yes_date)                                                 AS last_yes_day,
-      DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
-      ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
-      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${extraSelectSql}
-    ${joinTail}
-    ORDER BY csd.Site_ID ASC, csd.Species_ID ASC
-    ${limitClause}
-  `;
+  // New (previously unimplemented anywhere in Express): gates which cycles are
+  // emitted, applied AFTER splitSeriesCycles() — matches legacy's
+  // createSeries() push condition exactly, including the PHP truthiness quirk
+  // where a prior-no gap of exactly 0 days is falsy and drops the cycle even
+  // under a generous filter.
+  const numDaysQualityFilterIndividual = checkProperty(p, 'num_days_quality_filter_individual')
+    ? parseInt(p.num_days_quality_filter_individual, 10)
+    : null;
+  function qualifiesForQualityFilter(cycle) {
+    if (!numDaysQualityFilterIndividual) return true;
+    const d = cycle.numDaysSincePriorNo;
+    return !!d && d !== -9999 && d <= numDaysQualityFilterIndividual;
+  }
+
+  const baseSelectCols = [
+    'csd.Site_ID AS site_id',
+    'csd.Latitude AS latitude',
+    'csd.Longitude AS longitude',
+    'csd.Elevation_in_Meters AS elevation_in_meters',
+    'csd.State AS state',
+    'csd.Species_ID AS species_id',
+    'csd.Class_ID AS class_id',
+    'csd.Order_ID AS order_id',
+    'csd.Family_ID AS family_id',
+    'csd.Genus_ID AS genus_id',
+    'csd.Genus AS genus',
+    'csd.Species AS species',
+    'csd.Common_Name AS common_name',
+    'csd.Kingdom AS kingdom',
+    'csd.Individual_ID AS individual_id',
+    'csd.Phenophase_ID AS phenophase_id',
+    'csd.Phenophase_Description AS phenophase_description',
+  ];
+
+  const { sql, params } = buildSeriesHistoryQuery({
+    startDate, endDate, seriesConditions, seriesParams, seriesJoins,
+    baseSelectCols, csdAdditionalCols, coListCols, coAggCols,
+    orderBy: 'csd.Series_ID',
+  });
+  // LIMIT now bounds SERIES scanned (a cheap safety valve), not output rows —
+  // one series can emit more than one row once split into cycles. Legacy had
+  // no limit on this endpoint at all.
+  const limitClause = checkProperty(p, 'limit') ? `LIMIT ${parseInt(p.limit, 10)}` : '';
+  const fullSql = `${sql}\n${limitClause}`;
 
   let conn;
   try {
-    conn = await acquireStreamConn(npnDownloadPool, 'get_summarized_data');
+    conn = await acquireStreamConn(npnDownloadPool, 'get_summarized_data', async (c) => {
+      await c.query('SET SESSION group_concat_max_len = 10000000');
+    });
     res.setHeader('Content-Type', 'application/json');
     res.write('[');
   } catch (err) {
@@ -1351,21 +1388,76 @@ router.all('/get_summarized_data', async (req, res) => {
 
   let first = true;
 
-  streamDownload(req, res, conn, sql, params, 'get_summarized_data', {
+  streamDownload(req, res, conn, fullSql, params, 'get_summarized_data', {
     onRow: (row, write) => {
-      const out = {
-        ...row,
-        first_yes_julian_date: parseInt(row.first_yes_julian_date, 10),
-        last_yes_julian_date: parseInt(row.last_yes_julian_date, 10),
-      };
-      for (const { key, decimal } of responseAdditionalKeys) {
-        const raw = row[key];
-        if (raw === null || raw === undefined) out[key] = -9999;
-        else if (decimal) out[key] = parseFloat(raw);
-        else out[key] = raw;
+      const { dates, statuses, lists } = parseSeriesRow(row, coListCols);
+      const cycles = splitSeriesCycles(dates, statuses, lists);
+      for (const cycle of cycles) {
+        if (!qualifiesForQualityFilter(cycle)) continue;
+        const out = {
+          site_id: row.site_id,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          elevation_in_meters: row.elevation_in_meters,
+          state: row.state,
+          species_id: row.species_id,
+          class_id: row.class_id,
+          order_id: row.order_id,
+          family_id: row.family_id,
+          genus_id: row.genus_id,
+          genus: row.genus,
+          species: row.species,
+          common_name: row.common_name,
+          kingdom: row.kingdom,
+          individual_id: row.individual_id,
+          phenophase_id: row.phenophase_id,
+          phenophase_description: row.phenophase_description,
+          first_yes_year: cycle.firstYesYear,
+          first_yes_month: cycle.firstYesMonth,
+          first_yes_day: cycle.firstYesDay,
+          first_yes_doy: cycle.firstYesDoy,
+          first_yes_julian_date: cycle.firstYesJulian,
+          numdays_since_prior_no: cycle.numDaysSincePriorNo,
+          last_yes_year: cycle.lastYesYear,
+          last_yes_month: cycle.lastYesMonth,
+          last_yes_day: cycle.lastYesDay,
+          last_yes_doy: cycle.lastYesDoy,
+          last_yes_julian_date: cycle.lastYesJulian,
+          numdays_until_next_no: cycle.numDaysUntilNextNo,
+        };
+        for (const { key, kind, decimal } of responseAdditionalKeys) {
+          switch (kind) {
+            case 'computed':
+              if (key === 'numys_in_series') out[key] = cycle.numYs;
+              else if (key === 'numdays_in_series') out[key] = cycle.numDaysInSeries;
+              else if (key === 'multiple_observers') out[key] = cycle.multipleObservers;
+              else if (key === 'multiple_firsty') out[key] = cycle.multipleFirstY;
+              break;
+            case 'csd':
+            case 'coAgg': {
+              const raw = row[key];
+              out[key] = raw === null || raw === undefined ? -9999 : (decimal ? parseFloat(raw) : raw);
+              break;
+            }
+            case 'climate': {
+              const v = cycle.climateValues[key];
+              out[key] = decimal ? parseFloat(v) : v;
+              break;
+            }
+            case 'datasetIds':
+              out[key] = cycle.datasetIds.join(',');
+              break;
+            case 'observerIds':
+              out[key] = cycle.observerIds.join(',');
+              break;
+            case 'conflictFlag':
+              out[key] = cycle.conflictFlag;
+              break;
+          }
+        }
+        write((first ? '' : ',') + JSON.stringify(out));
+        first = false;
       }
-      write((first ? '' : ',') + JSON.stringify(out));
-      first = false;
     },
     onEnd: (write) => write(']'),
   });
@@ -1421,18 +1513,42 @@ router.all('/get_site_level_data', async (req, res) => {
   // coords, taxonomic IDs, species_type, functional_type, network_id
   applyCommonDownloadFilters(p, seriesConditions, seriesParams, seriesJoins, 'csd', 'co_net');
 
-  // additional_field support (CSD-only fields directly; CO-side via aggregated subquery)
+  // additional_field support. Same list/csd/coAgg classification as
+  // get_summarized_data (see there for why climate/dataset_id/observer/conflict
+  // need the GROUP_CONCAT'd per-series history).
   const requestedAdditional = withPhenoClassDefaults(resolveAdditionalFields(p), p);
   const csdAdditionalCols = [];
-  const coAdditionalCols = [];
-  const responseAdditionalKeys = [];
+  const coListCols = [];
+  const coAggCols = [];
+  const responseAdditionalKeys = []; // {key, kind, decimal}
   for (const key of requestedAdditional) {
     const def = ADDITIONAL_FIELD_MAP[key];
     if (!def) continue;
-    responseAdditionalKeys.push({ key, decimal: !!def.decimal });
-    if (def.table === 'csd') csdAdditionalCols.push(`csd.${def.col} AS ${key}`);
-    else coAdditionalCols.push({ key, col: def.col });
+    if (def.table === 'computed') {
+      // numys_in_series etc. are not part of legacy's site-level field list — skip.
+      continue;
+    } else if (def.table === 'csd') {
+      csdAdditionalCols.push(`csd.${def.col} AS ${key}`);
+      responseAdditionalKeys.push({ key, kind: 'csd', decimal: !!def.decimal });
+    } else if (def.list) {
+      coListCols.push({ key, col: def.col });
+      let kind = 'climate';
+      if (key === 'dataset_id') kind = 'datasetIds';
+      else if (key === 'observedby_person_id') kind = 'observerIds';
+      else if (key === 'observed_status_conflict_flag') kind = 'conflictFlag';
+      responseAdditionalKeys.push({ key, kind, decimal: !!def.decimal });
+    } else {
+      coAggCols.push({ key, col: def.col });
+      responseAdditionalKeys.push({ key, kind: 'coAgg', decimal: !!def.decimal });
+    }
   }
+
+  // Default 30, matching legacy (site_level_data_search.php); previously
+  // hardcoded to 30 with no way for a caller to override.
+  const numDaysQualityFilter = checkProperty(p, 'num_days_quality_filter')
+    ? parseInt(p.num_days_quality_filter, 10)
+    : 30;
+
   const slPhenoClassAggregate = checkProperty(p, 'pheno_class_aggregate') && String(p.pheno_class_aggregate) === '1';
   const slTaxonomyAggregate = checkProperty(p, 'taxonomy_aggregate') && String(p.taxonomy_aggregate) === '1';
 
@@ -1460,48 +1576,42 @@ router.all('/get_site_level_data', async (req, res) => {
 
   // Extra SELECT cols for the aggregation rank's name/common-name (the rank id
   // and csd.Genus are already in the base SELECT below).
-  let slAggRankSelectSql = '';
+  const slAggRankSelectCols = [];
   if (slAggRank) {
-    const cols = [];
-    if (slAggRank.nameKey !== 'genus') cols.push(`csd.${slAggRank.nameCol} AS ${slAggRank.nameKey}`);
-    cols.push(`csd.${slAggRank.commonCol} AS ${slAggRank.commonKey}`);
-    slAggRankSelectSql = ',\n      ' + cols.join(',\n      ');
+    if (slAggRank.nameKey !== 'genus') slAggRankSelectCols.push(`csd.${slAggRank.nameCol} AS ${slAggRank.nameKey}`);
+    slAggRankSelectCols.push(`csd.${slAggRank.commonCol} AS ${slAggRank.commonKey}`);
   }
 
-  const { withClause, joinTail, extraSelectSql, params } = buildPhenometricsQuery({
-    startDate, endDate, seriesConditions, seriesParams, seriesJoins,
-    csdAdditionalCols, coAdditionalCols,
-  });
+  const baseSelectCols = [
+    'csd.Site_ID AS site_id',
+    'csd.Latitude AS latitude',
+    'csd.Longitude AS longitude',
+    'csd.Elevation_in_Meters AS elevation_in_meters',
+    'csd.State AS state',
+    'csd.Species_ID AS species_id',
+    'csd.Class_ID AS class_id',
+    'csd.Order_ID AS order_id',
+    'csd.Family_ID AS family_id',
+    'csd.Genus_ID AS genus_id',
+    'csd.Genus AS genus',
+    'csd.Species AS species',
+    'csd.Common_Name AS common_name',
+    'csd.Kingdom AS kingdom',
+    // Needed for the per-individual first/last-yes reduction below (legacy's
+    // IndividualEntity) — previously absent, so every row was treated as its
+    // own "individual", which is the site-level half of this fix.
+    'csd.Individual_ID AS individual_id',
+    'csd.Phenophase_ID AS phenophase_id',
+    'csd.Phenophase_Description AS phenophase_description',
+    'csd.Pheno_Class_ID AS pheno_class_id',
+    'csd.Pheno_Class_Name AS pheno_class_name',
+    ...slAggRankSelectCols,
+  ];
 
-  const sql = `
-    ${withClause}
-    SELECT
-      csd.Site_ID                                                           AS site_id,
-      csd.Latitude                                                          AS latitude,
-      csd.Longitude                                                         AS longitude,
-      csd.Elevation_in_Meters                                               AS elevation_in_meters,
-      csd.State                                                             AS state,
-      csd.Species_ID                                                        AS species_id,
-      csd.Class_ID                                                          AS class_id,
-      csd.Order_ID                                                          AS order_id,
-      csd.Family_ID                                                         AS family_id,
-      csd.Genus_ID                                                          AS genus_id,
-      csd.Genus                                                             AS genus,
-      csd.Species                                                           AS species,
-      csd.Common_Name                                                       AS common_name,
-      csd.Kingdom                                                           AS kingdom,
-      csd.Phenophase_ID                                                     AS phenophase_id,
-      csd.Phenophase_Description                                            AS phenophase_description,
-      csd.Pheno_Class_ID                                                    AS pheno_class_id,
-      csd.Pheno_Class_Name                                                  AS pheno_class_name,
-      DAYOFYEAR(sy.first_yes_date)                                          AS first_yes_doy,
-      ROUND(UNIX_TIMESTAMP(sy.first_yes_date) / 86400.0 + 2440587.5)       AS first_yes_julian_date,
-      IFNULL(DATEDIFF(sy.first_yes_date, pn.prior_no_date), -9999)         AS numdays_since_prior_no,
-      DAYOFYEAR(sy.last_yes_date)                                           AS last_yes_doy,
-      ROUND(UNIX_TIMESTAMP(sy.last_yes_date) / 86400.0 + 2440587.5)        AS last_yes_julian_date,
-      IFNULL(DATEDIFF(nn.next_no_date, sy.last_yes_date), -9999)           AS numdays_until_next_no${slAggRankSelectSql}${extraSelectSql}
-    ${joinTail}
-  `;
+  const { sql, params } = buildSeriesHistoryQuery({
+    startDate, endDate, seriesConditions, seriesParams, seriesJoins,
+    baseSelectCols, csdAdditionalCols, coListCols, coAggCols,
+  });
 
   function stdErrSample(arr) {
     if (arr.length <= 1) return -9999;
@@ -1521,7 +1631,9 @@ router.all('/get_site_level_data', async (req, res) => {
 
   let conn;
   try {
-    conn = await acquireStreamConn(npnDownloadPool, 'get_site_level_data');
+    conn = await acquireStreamConn(npnDownloadPool, 'get_site_level_data', async (c) => {
+      await c.query('SET SESSION group_concat_max_len = 10000000');
+    });
   } catch (err) {
     if (conn) conn.destroy(); // defensive; acquireStreamConn already destroyed on failure
     console.error('get_site_level_data error:', err.message);
@@ -1531,11 +1643,22 @@ router.all('/get_site_level_data', async (req, res) => {
 
   const siteMap = new Map();
 
+  // Per-individual first/last-yes reduction (legacy IndividualEntity,
+  // site_level_data_search.php:337-456): a site's sample must count each
+  // individual once, keeping only its earliest qualifying first-yes and latest
+  // qualifying last-yes — comparing by DAY-OF-YEAR (not full date), matching
+  // legacy's actual comparison exactly rather than the more "correct"
+  // chronological comparison. Previously every split cycle (and even every row
+  // pre-fix) was pushed directly into the site's sampling arrays with no
+  // reduction at all.
+  function newIndividualEntity() {
+    return { firstYes: null, firstJulian: null, daysLastNo: null, lastYes: null, lastJulian: null, daysNextNo: null };
+  }
+
   const onRow = (r) => {
-    const julianFirst = parseInt(r.first_yes_julian_date, 10);
-    const julianLast = parseInt(r.last_yes_julian_date, 10);
-    const daysSince = r.numdays_since_prior_no;
-    const daysUntil = r.numdays_until_next_no;
+    const { dates, statuses, lists } = parseSeriesRow(r, coListCols);
+    const cycles = splitSeriesCycles(dates, statuses, lists);
+
     const phenoKey = slPhenoClassAggregate ? r.pheno_class_id : r.phenophase_id;
     // Taxon dimension of the group key: the higher rank's id when aggregating at
     // that rank, '*' when collapsing species under pheno-class-only aggregation,
@@ -1564,6 +1687,7 @@ router.all('/get_site_level_data', async (req, res) => {
         kingdom: r.kingdom,
         phenophase_id: r.phenophase_id,
         phenophase_description: r.phenophase_description,
+        individuals: new Map(),
         firstJulians: [],
         firstDoys: [],
         firstDaysSince: [],
@@ -1581,33 +1705,82 @@ router.all('/get_site_level_data', async (req, res) => {
         entry[slAggRank.nameKey] = r[slAggRank.nameKey];
         entry[slAggRank.commonKey] = r[slAggRank.commonKey];
       }
-      for (const { key: addKey, decimal } of responseAdditionalKeys) {
-        const raw = r[addKey];
-        if (raw === null || raw === undefined) entry.additional[addKey] = -9999;
-        else if (decimal) entry.additional[addKey] = parseFloat(raw);
-        else entry.additional[addKey] = raw;
+      // additional_field snapshot matches pre-existing (lossy) behavior: the
+      // first row's (now: first row's first cycle's) value wins for the whole
+      // group, not an aggregate across every contributing row.
+      const firstCycle = cycles[0];
+      for (const { key: addKey, kind, decimal } of responseAdditionalKeys) {
+        switch (kind) {
+          case 'csd':
+          case 'coAgg': {
+            const raw = r[addKey];
+            entry.additional[addKey] = raw === null || raw === undefined ? -9999 : (decimal ? parseFloat(raw) : raw);
+            break;
+          }
+          case 'climate': {
+            const v = firstCycle ? firstCycle.climateValues[addKey] : -9999;
+            entry.additional[addKey] = decimal ? parseFloat(v) : v;
+            break;
+          }
+          case 'datasetIds':
+            entry.additional[addKey] = firstCycle ? firstCycle.datasetIds.join(',') : '';
+            break;
+          case 'observerIds':
+            entry.additional[addKey] = firstCycle ? firstCycle.observerIds.join(',') : '';
+            break;
+          case 'conflictFlag':
+            entry.additional[addKey] = firstCycle ? firstCycle.conflictFlag : '-9999';
+            break;
+        }
       }
       siteMap.set(key, entry);
     }
 
     const site = siteMap.get(key);
 
-    if (daysSince > 0 && daysSince <= 30) {
-      site.firstJulians.push(julianFirst);
-      site.firstDoys.push(r.first_yes_doy);
-      site.firstDaysSince.push(daysSince);
-    }
+    let ind = site.individuals.get(r.individual_id);
+    if (!ind) { ind = newIndividualEntity(); site.individuals.set(r.individual_id, ind); }
 
-    if (daysUntil > 0 && daysUntil <= 30) {
-      site.lastJulians.push(julianLast);
-      site.lastDoys.push(r.last_yes_doy);
-      site.lastDaysUntil.push(daysUntil);
+    for (const cycle of cycles) {
+      const daysSince = cycle.numDaysSincePriorNo;
+      if (daysSince > 0 && daysSince <= numDaysQualityFilter &&
+          (ind.firstYes === null || cycle.firstYesDoy < ind.firstYes)) {
+        ind.firstYes = cycle.firstYesDoy;
+        ind.firstJulian = cycle.firstYesJulian;
+        ind.daysLastNo = daysSince;
+      }
+
+      const daysUntil = cycle.numDaysUntilNextNo;
+      if (daysUntil > 0 && daysUntil <= numDaysQualityFilter &&
+          (ind.lastYes === null || cycle.lastYesDoy > ind.lastYes)) {
+        ind.lastYes = cycle.lastYesDoy;
+        ind.lastJulian = cycle.lastYesJulian;
+        ind.daysNextNo = daysUntil;
+      }
     }
   };
 
   const onEnd = (write) => {
     const result = [];
     for (const site of siteMap.values()) {
+      // Reduce each individual to at most one first-yes and one last-yes
+      // contribution before sampling — this is the fix: previously every
+      // split cycle (or, pre-fix, every raw row) was pushed here directly,
+      // so a single individual could inflate the sample size and skew the mean.
+      for (const ind of site.individuals.values()) {
+        if (ind.firstYes === null && ind.lastYes === null) continue; // no qualifying series at all
+        if (ind.firstYes !== null) {
+          site.firstJulians.push(ind.firstJulian);
+          site.firstDoys.push(ind.firstYes);
+          site.firstDaysSince.push(ind.daysLastNo);
+        }
+        if (ind.lastYes !== null) {
+          site.lastJulians.push(ind.lastJulian);
+          site.lastDoys.push(ind.lastYes);
+          site.lastDaysUntil.push(ind.daysNextNo);
+        }
+      }
+
       const nFirst = site.firstJulians.length;
       const nLast = site.lastJulians.length;
       if (nFirst === 0 && nLast === 0) continue;
