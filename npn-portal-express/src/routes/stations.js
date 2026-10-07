@@ -459,6 +459,12 @@ function daymetIsLeapYear(year) {
 }
 
 // Fetch one year of daily data from the Daymet API; returns array of day objects or null.
+//
+// Only rows whose `year` column equals the requested year are kept. For a year Daymet has not
+// published yet (the current year, at least until well into the next one) the single-pixel API
+// does NOT error: it returns every published year, 1980 onward (16,790 rows on 2026-10-07).
+// Without this filter those rows were cached under the requested year, so 2026 lookups at 243
+// locations returned 1980 weather (Jun 30 - Oct 7, 2026).
 async function fetchDaymetAPI(lat, lon, year) {
   try {
     const url = `${DAYMET_API}?lat=${lat}&lon=${lon}&vars=${DAYMET_VARS}&years=${year}`;
@@ -476,9 +482,14 @@ async function fetchDaymetAPI(lat, lon, year) {
       const vals = line.split(',');
       const day = {};
       headers.forEach((h, idx) => { day[h] = parseFloat(vals[idx]); });
+      if (day.year !== year) continue;
       days.push(day);
     }
-    return days.length ? days : null;
+    if (!days.length) {
+      console.error(`fetchDaymetAPI: no rows for year ${year} (lat=${lat} lon=${lon}); not published yet?`);
+      return null;
+    }
+    return days;
   } catch (err) {
     console.error(`fetchDaymetAPI error (lat=${lat} lon=${lon} year=${year}):`, err.message);
     return null;
@@ -565,7 +576,9 @@ async function cacheDaymet(lat, lon, year, data, lastYearData) {
          tmax=VALUES(tmax), tmin=VALUES(tmin), tmaxf=VALUES(tmaxf), tminf=VALUES(tminf),
          prcp=VALUES(prcp), daylength=VALUES(daylength), gdd=VALUES(gdd),
          gddf=VALUES(gddf), acc_prcp=VALUES(acc_prcp)`,
-      [daymetId, i + 1, day.tmax, day.tmin, tmaxf, tminf,
+      // Daymet's own day of year, not the row position: the two only agree when the response
+      // is exactly one year starting on Jan 1.
+      [daymetId, day.yday, day.tmax, day.tmin, tmaxf, tminf,
        day.prcp, day.dayl, gdd, gddf, totalPrcp]
     );
   }
@@ -612,6 +625,10 @@ router.all('/get_daymet_data', async (req, res) => {
         [stationId]
       );
       if (!station) return res.json(null);
+
+      // Daymet publishes a year only after it ends, so the current (or a future) year can never
+      // be fetched — and asking costs a ~16,000-row download that fetchDaymetAPI then discards.
+      if (year >= new Date().getFullYear()) return res.json(null);
 
       const { lat, lon } = station;
       const data = await fetchDaymetAPI(lat, lon, year);
