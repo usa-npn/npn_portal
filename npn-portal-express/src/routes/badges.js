@@ -4,8 +4,8 @@ const { npnPool } = require('../config/db');
 const checkProperty = require('../utils/checkProperty');
 const VALIDATORS = require('../badges/validators');
 
-// POST /check_user_badge
-router.post('/check_user_badge', async (req, res) => {
+// GET or POST /check_user_badge (Java CheckBadgesRequester sends GET)
+router.all('/check_user_badge', async (req, res) => {
   try {
     const p = { ...req.query, ...(req.body || {}) };
 
