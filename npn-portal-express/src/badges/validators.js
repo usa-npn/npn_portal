@@ -257,6 +257,79 @@ async function lplValidator(personId) {
   `, [personId]);
 }
 
+// Month-day window (MMDD strings) that may cross New Year (start > end).
+// Returns SQL fragments + params for filtering on the window and for the season key.
+// A season that crosses New Year is keyed by the year it starts in
+// (Dec 2026 - Mar 2027 = season 2026).
+function seasonWindow(col, startMMDD, endMMDD) {
+  const md = `DATE_FORMAT(${col}, '%m%d')`;
+  const crosses = startMMDD > endMMDD;
+  return {
+    where: crosses ? `(${md} >= ? OR ${md} <= ?)` : `${md} BETWEEN ? AND ?`,
+    whereParams: [startMMDD, endMMDD],
+    season: crosses ? `YEAR(${col}) - IF(${md} <= ?, 1, 0)` : `YEAR(${col})`,
+    seasonParams: crosses ? [endMMDD] : [],
+  };
+}
+
+// N distinct ISO weeks (YEARWEEK mode 3, so late Dec / early Jan don't collide)
+// observing one individual of a campaign species (Species_Species_Type) within
+// one season. Credits the observer (Observation.Observer_ID), not the station owner.
+function seasonWeekValidator(speciesTypeId, startMMDD, endMMDD, threshold) {
+  return async function (personId) {
+    const w = seasonWindow('o.Observation_Date', startMMDD, endMMDD);
+    return queryHasRows(`
+      SELECT o.Individual_ID, ${w.season} season, COUNT(DISTINCT YEARWEEK(o.Observation_Date, 3)) c
+      FROM usanpn2.Observation o
+      JOIN usanpn2.Station_Species_Individual ssi ON ssi.Individual_ID = o.Individual_ID
+      JOIN usanpn2.Species_Species_Type sst ON sst.Species_ID = ssi.Species_ID AND sst.Species_Type_ID = ?
+      WHERE o.Observer_ID = ?
+        AND (o.Deleted IS NULL OR o.Deleted <> 1)
+        AND ${w.where}
+      GROUP BY o.Individual_ID, season
+      HAVING c >= ?
+      LIMIT 1
+    `, [...w.seasonParams, speciesTypeId, personId, ...w.whereParams, threshold]);
+  };
+}
+
+// Desert Refuge: N distinct ISO weeks in one season in which the person observed one
+// target milkweed (Plantae in the campaign Species_Type) AND recorded monarch presence
+// or absence (not '?') at the same site that week.
+const MONARCH_SPECIES_ID = 396;
+function desertRefugeValidator(speciesTypeId, startMMDD, endMMDD, threshold) {
+  return async function (personId) {
+    const w = seasonWindow('o.Observation_Date', startMMDD, endMMDD);
+    return queryHasRows(`
+      SELECT m.Individual_ID, m.season, COUNT(DISTINCT m.wk) c
+      FROM (
+        SELECT o.Individual_ID, ssi.Station_ID, YEARWEEK(o.Observation_Date, 3) wk, ${w.season} season
+        FROM usanpn2.Observation o
+        JOIN usanpn2.Station_Species_Individual ssi ON ssi.Individual_ID = o.Individual_ID
+        JOIN usanpn2.Species_Species_Type sst ON sst.Species_ID = ssi.Species_ID AND sst.Species_Type_ID = ?
+        JOIN usanpn2.Species s ON s.Species_ID = ssi.Species_ID AND s.Kingdom = 'Plantae'
+        WHERE o.Observer_ID = ?
+          AND (o.Deleted IS NULL OR o.Deleted <> 1)
+          AND ${w.where}
+      ) m
+      WHERE EXISTS (
+        SELECT 1
+        FROM usanpn2.Observation o2
+        JOIN usanpn2.Station_Species_Individual s2 ON s2.Individual_ID = o2.Individual_ID
+        WHERE o2.Observer_ID = ?
+          AND s2.Station_ID = m.Station_ID
+          AND s2.Species_ID = ?
+          AND o2.Observation_Extent IN (0, 1)  -- present or not present; '?' (-1) doesn't count
+          AND (o2.Deleted IS NULL OR o2.Deleted <> 1)
+          AND YEARWEEK(o2.Observation_Date, 3) = m.wk
+      )
+      GROUP BY m.Individual_ID, m.season
+      HAVING c >= ?
+      LIMIT 1
+    `, [...w.seasonParams, speciesTypeId, personId, ...w.whereParams, personId, MONARCH_SPECIES_ID, threshold]);
+  };
+}
+
 const VALIDATORS = {
   bat_campaign:          weekThresholdValidator([1593,1594,1322,210], 6),
   clone:                 weekThresholdValidator([35,444], 6),
@@ -282,6 +355,8 @@ const VALIDATORS = {
   twelve_week:           twelveWeekValidator,
   mayfly:                mayflyValidator,
   lpl:                   lplValidator,
+  pollencast:            seasonWeekValidator(44, '1201', '0331', 6),   // Ashe's juniper, Dec 1 - Mar 31
+  desert_refuge:         desertRefugeValidator(45, '0901', '0531', 6), // milkweed + monarch, Sep 1 - May 31
 };
 
 module.exports = VALIDATORS;
