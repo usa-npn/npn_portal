@@ -335,12 +335,19 @@ function applyCommonDownloadFilters(p, conditions, params, joins, csdAlias = 'cs
           ) net_series ON net_series.Series_ID = ${csdAlias}.Series_ID`
         );
       } else {
-        joins.push(
-          `INNER JOIN (
-            SELECT DISTINCT Observation_ID
+        // IN-subquery (semi-join), not a DISTINCT derived table: MySQL materialized
+        // the derived table via a "covering index skip scan for deduplication" over
+        // unique_net_const (Observation_ID, Network_ID) — i.e. every distinct
+        // Observation_ID in the table — before applying the date range, so even a
+        // 3-network, 3-week download ran for minutes and Apache's 600s TimeOut cut
+        // it off. As a semi-join the optimizer drives from the co date range and
+        // probes obs-id-indx per row (~1-2s for the same requests).
+        conditions.push(
+          `${coAlias}.Observation_ID IN (
+            SELECT Observation_ID
             FROM usanpn2.Cached_Network_Observation
             WHERE Network_ID IN (${ids.join(',')})
-          ) cno ON cno.Observation_ID = ${coAlias}.Observation_ID`
+          )`
         );
       }
     }
